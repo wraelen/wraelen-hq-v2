@@ -1,6 +1,7 @@
+import prisma from '../lib/prisma'; // Relative (assuming lib/ and prisma/ siblings under src/)
 import bcrypt from 'bcryptjs';
-import prisma from 'src/lib/prisma';
 
+// ... rest unchanged
 async function main() {
   // Hash passwords (vary for each to simulate real users)
   const novicePass = await bcrypt.hash('novicepass', 10);
