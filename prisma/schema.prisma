@@ -1,0 +1,48 @@
+// prisma/schema.prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"  // Switched from postgresql to match your URI
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String   @id @default(auto()) @map("_id") @db.ObjectId
+  username String   @unique
+  password String   // Hashed; we'll manage via bcrypt in routes
+  role     String   @default("novice")  // Gamified roles: novice -> elite based on points
+  email    String?  @unique
+  points   Int      @default(0)  // XP for quests (e.g., +10 per lead imported)
+  badges   String[] @default([])  // Achievements like "Lead Hunter" unlocked at thresholds
+  leads    Lead[]   // One-to-many relation: Reps own their scraped leads
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lead {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  address       String
+  price         String
+  beds          String
+  baths         String
+  sqFt          String
+  type          String   @default("Single Family")
+  daysOnMarket  String
+  realtorName   String
+  realtorPhone  String   @default("Contact for phone")
+  photo         String
+  url           String
+  score         Int      @default(0)  // Auto-calculated value (e.g., high-price leads = bonus XP)
+  user          User     @relation(fields: [userId], references: [id])
+  createdAt     DateTime @default(now())
+}
+
+// Expand later: e.g., CallLog for quest logging (ties to CallRail, awards points per call)
