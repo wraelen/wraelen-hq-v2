@@ -69,6 +69,9 @@
     "tailwind-merge": "^2.6.0",
     "zod": "^3.24.4"
   },
+  "prisma": {
+    "seed": "ts-node --project tsconfig.json src/prisma/seed.ts"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "puppeteer",
