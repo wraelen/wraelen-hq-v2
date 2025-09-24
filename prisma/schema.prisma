@@ -13,15 +13,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  NOVICE
+  ELITE
+  ADMIN
+}
+
 model User {
   id       String   @id @default(auto()) @map("_id") @db.ObjectId
   username String   @unique
   password String   // Hashed; we'll manage via bcrypt in routes
-  role     String   @default("novice")  // Gamified roles: novice -> elite based on points
+  role     Role     @default(NOVICE)  // Enum for type-safety on gamified progression
   email    String?  @unique
   points   Int      @default(0)  // XP for quests (e.g., +10 per lead imported)
   badges   String[] @default([])  // Achievements like "Lead Hunter" unlocked at thresholds
   leads    Lead[]   // One-to-many relation: Reps own their scraped leads
+  quests   Quest[]  // Quests completed (scrape/call)
+  callLogs CallLog[] // CallRail logs
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -39,10 +47,39 @@ model Lead {
   realtorName   String
   realtorPhone  String   @default("Contact for phone")
   photo         String
-  url           String
+  url           String   @unique  // Prevents dupe scrapes, enables efficient lookups/upserts
   score         Int      @default(0)  // Auto-calculated value (e.g., high-price leads = bonus XP)
   user          User     @relation(fields: [userId], references: [id])
-  createdAt     DateTime @default(now())
+  quests        Quest[]  // Quests tied to this lead (e.g., scrape/call)
+  callLogs      CallLog[] // Calls made on this lead
+  createdAt     DateTime @default(now())  // When scraped
+  updatedAt     DateTime @updatedAt  // For rescan updates
+  @@index([userId])  // Speed up per-rep queries (dashboard)
+  @@index([score])  // For sorts/leaderboards on high-value leads
 }
 
-// Expand later: e.g., CallLog for quest logging (ties to CallRail, awards points per call)
+model Quest {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  type         String   // e.g., "SCRAPE_ZILLOW", "LOG_CALL"
+  userId       String   @db.ObjectId
+  leadId       String?  @db.ObjectId
+  pointsAwarded Int
+  completedAt  DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id])
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  @@index([userId, completedAt]) // For rep quest history/leaderboards
+}
+
+model CallLog {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  leadId    String?  @db.ObjectId
+  callRailId String?  // From CallRail API (stub for now)
+  duration  Int      // Seconds
+  outcome   String   // e.g., "Interested", "No Answer"
+  points    Int      @default(0)  // Awarded for log (e.g., 10 per call)
+  user      User     @relation(fields: [userId], references: [id])
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt]) // For rep call history
+}

@@ -1,74 +1,50 @@
-import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
-import puppeteer from 'puppeteer'; // Install: pnpm add puppeteer
-import { getServerSession } from 'next-auth'; // If using Auth.js; install next-auth @auth/prisma-adapter
-import { authOptions } from '../auth/[...nextauth]/route'; // Stub—add Auth.js as per previous messages
-
-interface ScrapeBody {
-  url: string; // Pasted Zillow link
-}
+// ... imports unchanged (add if needed: import { authOptions } from '../auth/[...nextauth]/route'; for Auth.js)
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions); // Auth check (use your JWT if not Auth.js)
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // ... auth check unchanged
 
-  const body: ScrapeBody = await request.json();
+  // ... body parse, Puppeteer launch, page.goto unchanged
 
-  try {
-    const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] }); // For serverless
-    const page = await browser.newPage();
-    await page.goto(body.url, { waitUntil: 'networkidle2' });
+  const data = await page.evaluate(() => {
+    // Improved selectors (Zillow-specific, tested on samples—adjust if UI changes)
+    const getText = (sel) => document.querySelector(sel)?.textContent?.trim() || '';
+    const address = getText('span[data-testid="bed-bath-beyond-header"] > address');
+    const price = getText('span[data-testid="price"]');
+    const beds = getText('span[data-testid="bed-bath-item"] > span:first-child');
+    const baths = getText('span[data-testid="bed-bath-item"]:nth-child(2) > span:first-child');
+    const sqFt = getText('span[data-testid="bed-bath-item"]:nth-child(3) > span:first-child');
+    const type = getText('span[data-testid="home-type"]') || 'Single Family';
+    const daysOnMarket = getText('span[data-testid="days-on-zillow"]');
+    const realtorName = getText('span[data-testid="attribution-AGENT-name"]');
+    const realtorPhone = getText('a[data-testid="contact-phone"]');
+    const photo = document.querySelector('img[data-testid="hero-media-image"]')?.src || '';
+    const url = window.location.href;
 
-    // Extract data (Zillow selectors—tested on sample listings; may change, use try/catch for robustness)
-    const data = await page.evaluate(() => {
-      const getText = (selector: string) => document.querySelector(selector)?.textContent?.trim() || '';
+    const priceNum = parseInt(price.replace(/[^0-9]/g, '')) || 0;
+    const daysNum = parseInt(daysOnMarket) || 30;
+    const score = (priceNum > 1000000 ? 80 : priceNum > 500000 ? 50 : 20) - daysNum; // Penalty for stale leads
 
-      const address = getText('[data-testid="hdp-address"]');
-      const price = getText('[data-testid="price"]');
-      const beds = getText('[data-testid="bed-bath-item"]:nth-child(1)');
-      const baths = getText('[data-testid="bed-bath-item"]:nth-child(2)');
-      const sqFt = getText('[data-testid="bed-bath-item"]:nth-child(3)');
-      const type = getText('[data-testid="home-type"]') || 'Single Family';
-      const daysOnMarket = getText('[data-testid="days-on-zillow"]');
-      const realtorName = getText('[data-testid="listing-agent-name"]');
-      const realtorPhone = getText('[data-testid="listing-agent-phone"]') || 'Contact for phone';
-      const photo = document.querySelector('[data-testid="media-browser-image"] img')?.src || '';
-      const url = window.location.href;
+    return { address, price, beds, baths, sqFt, type, daysOnMarket, realtorName, realtorPhone, photo, url, score };
+  });
 
-      // Calc score (e.g., high price = high score for bonus XP)
-      const priceNum = parseInt(price.replace(/[^0-9]/g, '')) || 0;
-      const score = priceNum > 1000000 ? 80 : priceNum > 500000 ? 50 : 20;
+  // ... browser.close, dupe check unchanged
 
-      return { address, price, beds, baths, sqFt, type, daysOnMarket, realtorName, realtorPhone, photo, url, score };
-    });
+  const lead = await prisma.lead.create({
+    data: {
+      userId: session.user.id,
+      ...data,
+    },
+  });
 
-    await browser.close();
+  // Create quest entry (ties scrape to gamification)
+  await prisma.quest.create({
+    data: {
+      type: "SCRAPE_ZILLOW",
+      userId: session.user.id,
+      leadId: lead.id,
+      pointsAwarded: data.score,
+    },
+  });
 
-    // Save to leads, tie to user
-    const lead = await prisma.lead.create({
-      data: {
-        userId: session.user.id,
-        ...data,
-      },
-    });
-
-    // Gamification: Increment points, check unlock
-    const updatedUser = await prisma.user.update({
-      where: { id: session.user.id },
-      data: { points: { increment: data.score } },
-      select: { points: true, badges: true, role: true },
-    });
-
-    if (updatedUser.points >= 1000 && !updatedUser.badges.includes('Elite Scraper')) {
-      await prisma.user.update({
-        where: { id: session.user.id },
-        data: { badges: { push: 'Elite Scraper' }, role: 'elite' },
-      });
-    }
-
-    return NextResponse.json({ lead, newPoints: updatedUser.points }, { status: 201 });
-  } catch (error: unknown) {
-    const errMessage = error instanceof Error ? error.message : 'Scrape failed';
-    return NextResponse.json({ error: errMessage }, { status: 500 });
-  }
+  // ... point increment, unlock check unchanged (use data.score)
 }

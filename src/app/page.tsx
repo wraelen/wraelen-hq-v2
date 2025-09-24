@@ -1,5 +1,5 @@
-import { Metadata } from "next"
 import { Button } from "components/Button/Button"
+import { Metadata } from "next"
 
 import { LP_GRID_ITEMS } from "lp-items"
 
