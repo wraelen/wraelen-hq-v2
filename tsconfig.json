@@ -20,7 +20,8 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {  // Add this for @/ alias
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "styles/*": ["./src/styles/*"] // Add this if styles/ under src/
     },
     "types": ["node", "vitest/globals", "@testing-library/jest-dom"],
     "plugins": [
