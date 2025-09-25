@@ -66,7 +66,7 @@ model Quest {
   pointsAwarded Int
   completedAt  DateTime @default(now())
   user         User     @relation(fields: [userId], references: [id])
-  lead         Lead?    @relation(fields: [leadId], references [id])
+  lead         Lead?    @relation(fields: [leadId], references: [id])
   @@index([userId, completedAt]) // Added: For rep quest history/leaderboards (sort by time/points)
 }
 
