@@ -14,7 +14,7 @@ async function main() {
     create: {
       username: 'novice_rep',
       password: novicePass,
-      role: 'NOVICE',
+      role: 'NOVICE', // Updated to use enum
       points: 50,
       badges: ['Lead Scout'], // Earned from basic quests
       email: 'novice@wraelen.com',
@@ -27,7 +27,7 @@ async function main() {
     create: {
       username: 'elite_rep',
       password: elitePass,
-      role: 'ELITE',
+      role: 'ELITE', // Updated to use enum
       points: 500,
       badges: ['Deal Closer', 'Quest Master'], // Advanced achievements
       email: 'elite@wraelen.com',
@@ -40,19 +40,18 @@ async function main() {
     create: {
       username: 'admin_rep',
       password: adminPass,
-      role: 'ADMIN',
+      role: 'ADMIN', // Updated to use enum
       points: 1000,
       badges: ['Company Founder'],
       email: 'admin@wraelen.com',
     },
   });
 
-  // Fetch created users for relations (with null checks) - this fixes TS2304 by defining 'novice' and 'elite'
+  // Fetch created users for relations (with null checks) - this defines 'novice' and 'elite' to fix TS2304
   const novice = await prisma.user.findUnique({ where: { username: 'novice_rep' } });
   const elite = await prisma.user.findUnique({ where: { username: 'elite_rep' } });
-
   if (!novice || !elite) {
-    throw new Error('Failed to find seeded users—check createMany');
+    throw new Error('Failed to find seeded users—check upsert');
   }
 
   // Sample leads: Tied to reps, with scores for gamified bonuses (e.g., high-value = more XP)
