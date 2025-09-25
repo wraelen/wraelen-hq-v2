@@ -1,76 +1,50 @@
-"use client"
+"use client";
 
-import { TooltipProps } from '@radix-ui/react-tooltip';
-import * as RadixTooltip from "@radix-ui/react-tooltip"
-import { cva, type VariantProps } from "class-variance-authority"
-import React from "react"
-import { twMerge } from "tailwind-merge"
+import { Tooltip as RadixTooltip, TooltipProps as RadixTooltipProps, TooltipArrow, TooltipContent, TooltipTrigger } from '@radix-ui/react-tooltip';
+import React from 'react';
 
-const tooltipContent = cva([], {
-  variants: {
-    intent: {
-      primary: ["rounded-md", "bg-zinc-700", "font-sans", "text-white"],
-    },
-    size: {
-      md: ["px-4", "py-2.5", "text-xs"],
-    },
-  },
-  defaultVariants: {
-    intent: "primary",
-    size: "md",
-  },
-})
-
-const tooltipArrow = cva([], {
-  variants: {
-    intent: {
-      primary: ["fill-zinc-700"],
-    },
-    size: {
-      md: ["w-4", "h-2"],
-    },
-  },
-  defaultVariants: {
-    intent: "primary",
-    size: "md",
-  },
-})
-
-export interface TooltipProps extends VariantProps<typeof tooltipContent>, RadixTooltip.TooltipProps {
-  explainer: React.ReactElement | string
-  children: React.ReactElement
-  className?: string
-  withArrow?: boolean
-  side?: "top" | "right" | "bottom" | "left"
+interface TooltipProps extends RadixTooltipProps {
+  children: React.ReactNode;
+  explain: string;
+  intent?: 'primary' | 'secondary'; // Custom color scheme
+  size?: 'sm' | 'md' | 'lg'; // Custom size
+  side?: 'top' | 'right' | 'bottom' | 'left'; // Placement
+  className?: string;
+  withArrow?: boolean;
+  open?: boolean;
+  defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function Tooltip({
   children,
-  explainer,
+  explain,
+  intent = 'primary',
+  size = 'md',
+  side = 'top',
+  className = '',
+  withArrow = true,
   open,
   defaultOpen,
   onOpenChange,
-  intent,
-  size,
-  side = "top",
-  className,
-  withArrow,
+  ...radixProps // Spread base Radix props to Root
 }: TooltipProps) {
+  // Custom classes for variants (Tailwind—adjust to your styles/tailwind.css)
+  const intentClass = intent === 'primary' ? 'bg-zinc-800 text-white' : 'bg-gray-200 text-black';
+  const sizeClass = size === 'sm' ? 'px-2 py-1 text-xs' : size === 'lg' ? 'px-4 py-2 text-lg' : 'px-3 py-1.5 text-sm';
+
   return (
-    <RadixTooltip.Provider>
-      <RadixTooltip.Root open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange} delayDuration={200}>
-        <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
-        <RadixTooltip.Portal>
-          <RadixTooltip.Content
-            side={side}
-            sideOffset={5}
-            className={twMerge(tooltipContent({ intent, size, className }))}
-          >
-            {explainer}
-            {withArrow ? <RadixTooltip.Arrow className={twMerge(tooltipArrow({ intent, size, className }))} /> : null}
-          </RadixTooltip.Content>
-        </RadixTooltip.Portal>
-      </RadixTooltip.Root>
-    </RadixTooltip.Provider>
-  )
+    <RadixTooltip open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange} {...radixProps}>
+      <TooltipTrigger asChild>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent
+        side={side}
+        className={`${intentClass} ${sizeClass} rounded-md ${className}`}
+      >
+        {explain}
+        {withArrow && <TooltipArrow />}
+      </TooltipContent>
+    </RadixTooltip>
+  );
 }
