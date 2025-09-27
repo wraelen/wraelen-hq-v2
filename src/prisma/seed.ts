@@ -14,7 +14,7 @@ async function main() {
     create: {
       username: 'novice_rep',
       password: novicePass, // Updated: Use hashed password
-      role: 'novice',
+      role: 'NOVICE',
       points: 50,
       badges: ['Lead Scout'], // Earned from basic quests
       email: 'novice@wraelen.com',
@@ -27,7 +27,7 @@ async function main() {
     create: {
       username: 'elite_rep',
       password: elitePass, // Updated: Use hashed password
-      role: 'elite',
+      role: 'ELITE',
       points: 500,
       badges: ['Deal Closer', 'Quest Master'], // Advanced achievements
       email: 'elite@wraelen.com',
@@ -40,7 +40,7 @@ async function main() {
     create: {
       username: 'admin_rep',
       password: adminPass, // Updated: Use hashed password
-      role: 'admin',
+      role: 'ADMIN',
       points: 1000,
       badges: ['Company Founder'],
       email: 'admin@wraelen.com',

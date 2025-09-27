@@ -25,10 +25,10 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async session({ session, user }) {
-      // Added: Extend session with gamification fields from User model (points/badges/role for dashboard/XP bar; available in getServerSession)
-      session.user = { ...session.user, id: user.id, role: user.role, points: user.points, badges: user.badges };
-      return session;
+    async session({ session, user }: { session: Session; user: User }) { // Added: Types for session/user from next-auth/prisma-client (fixes TS7031 implicit 'any')
+    // Added: Extend session with gamification fields from User model (points/badges/role for dashboard/XP bar; available in getServerSession)
+    session.user = { ...session.user, id: user.id, role: user.role, points: user.points, badges: user.badges };
+    return session;
     },
   },
   secret: process.env.JWT_SECRET, // Added: From .env (generate random string: openssl rand -base64 32)

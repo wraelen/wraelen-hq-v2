@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'; // Kept existing
 import { Progress } from '@/components/ui/progress'; // Kept existing
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'; // Kept existing
 import prisma from '@/lib/prisma'; // Kept existing
+import { authOptions } from '../api/auth/[...nextauth]/route'; // Added: Import authOptions from auth route (fixes TS2304 'Cannot find name 'authOptions'')
 
 export default async function Dashboard() {
   const session = await getServerSession(authOptions); // Kept existing
