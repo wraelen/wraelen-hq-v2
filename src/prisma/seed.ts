@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.ts'; // Relative import with extension for ts-node resolution
 
 async function main() {
-  // Hash passwords (vary for each to simulate real users)
+  // Hash passwords (vary for each to simulate real users)—updated to use bcrypt for secure seeded data (matches auth system)
   const novicePass = await bcrypt.hash('novicepass', 10);
   const elitePass = await bcrypt.hash('elitepass', 10);
   const adminPass = await bcrypt.hash('adminpass', 10);

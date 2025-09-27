@@ -6,11 +6,8 @@ import { Progress } from '@/components/ui/progress'; // Added: Shadcn Progress c
 import ClientXPBar from './ClientXPBar.tsx'; // Added: New client component for XP bar to handle motion animations (fixes server call error)
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // const session = await getServerSession(authOptions); // Commented out: Fetch session server-side (re-enable with auth)
-  // const userXp = session?.user?.xp || 0; // Commented out: Get XP from session (defaults to 0); add xp Int @default(0) to User model later
-  const userXp = 150; // Kept stubbed XP for testing without auth (Level 1, 50/100 XP); replace with session.user?.xp when adding auth
-  const currentLevel = Math.min(Math.floor(userXp / 100), 99); // Kept existing level calc (100 XP per level placeholder—adjust to your defined task values; no multipliers as per your request)
-  const progressToNext = userXp % 100; // Kept existing progress calc for bar fill (0-100)
+  const session = await getServerSession(authOptions); // Added: Fetch session for dynamic XP (now works with auth set up)
+  const userXp = session?.user?.xp || 0; // Updated: Use session.user.xp (defaults to 0 if not logged in)
 
   return (
     <html lang="en">
