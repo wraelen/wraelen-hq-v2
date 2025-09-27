@@ -5,6 +5,8 @@ import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials'; // Added: For username/password login (credentials provider)
 import prisma from '@/lib/prisma'; // Kept your singleton Prisma client
 
+
+
 export const authOptions = {
   adapter: PrismaAdapter(prisma), // Added: Uses Prisma to store sessions/accounts, links to your User model (required for adapter; handles register/login auto)
   providers: [
