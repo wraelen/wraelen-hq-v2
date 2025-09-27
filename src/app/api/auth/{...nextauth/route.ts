@@ -1,9 +1,7 @@
 // src/app/api/auth/[...nextauth]/route.ts (new file—Auth.js config for login/register with credentials, Prisma adapter for User model integration, session extension for gamification fields)
 import { PrismaAdapter } from '@auth/prisma-adapter'; // Added: Prisma adapter for session/user linking (auto-creates User on register if not exists)
-import { User } from '@prisma/client'; // Added: Type for user in callbacks (fixes TS7031)
 import bcrypt from 'bcryptjs'; // Added: For password hashing/verification (secure storage/comparison)
 import NextAuth from 'next-auth';
-import { Session } from 'next-auth'; // Added: Type for session callback (fixes TS7031)
 import CredentialsProvider from 'next-auth/providers/credentials'; // Added: For username/password login (credentials provider)
 import prisma from '@/lib/prisma'; // Kept your singleton Prisma client
 
@@ -27,14 +25,14 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async session({ session, user }: { session: Session; user: User }) { // Added: Types for session/user params (fixes TS7031)
+    async session({ session, user }) {
       // Added: Extend session with gamification fields from User model (points/badges/role for dashboard/XP bar; available in getServerSession)
       session.user = { ...session.user, id: user.id, role: user.role, points: user.points, badges: user.badges };
       return session;
     },
   },
   secret: process.env.JWT_SECRET, // Added: From .env (generate random string: openssl rand -base64 32)
-  session: { strategy: "jwt" as const }, // Updated: Added 'as const' to fix TS2345 type mismatch (strategy must be literal 'jwt' or 'database')
+  session: { strategy: "jwt" as const }, // Added: JWT for session (simple for solo; switch to database for scale)
   pages: { signIn: '/auth/signin' }, // Added: Custom login page (create next for game-themed UI)
 };
 

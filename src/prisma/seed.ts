@@ -1,11 +1,11 @@
-import bcrypt from 'bcryptjs';
-import prisma from '../lib/prisma.ts'; // Relative import with extension for ts-node resolution
+import bcrypt from 'bcryptjs'; // Kept existing: Now used for hashing seeded passwords (aligns with auth/register for consistency; fixes unused warning)
+import prisma from '../lib/prisma.ts'; // Kept existing: Relative import with extension for ts-node resolution
 
 async function main() {
-  // Hash passwords (vary for each to simulate real users)—updated to use bcrypt for secure seeded data (matches auth system)
-  const novicePass = await bcrypt.hash('novicepass', 10);
-  const elitePass = await bcrypt.hash('elitepass', 10);
-  const adminPass = await bcrypt.hash('adminpass', 10);
+  // Hash passwords (vary for each to simulate real users)—updated to use bcrypt for secure seeded data (matches auth system; fixes unused bcrypt warning)
+  const novicePass = await bcrypt.hash('novicepass', 10); // Added: Use bcrypt to hash (secure, same as register/login)
+  const elitePass = await bcrypt.hash('elitepass', 10); // Added: Use bcrypt to hash
+  const adminPass = await bcrypt.hash('adminpass', 10); // Added: Use bcrypt to hash
 
   // Sample users: Reps at different "game levels" for leaderboard/quest testing
   await prisma.user.upsert({
@@ -13,8 +13,8 @@ async function main() {
     update: {},
     create: {
       username: 'novice_rep',
-      password: novicePass,
-      role: 'NOVICE', // Updated to use enum
+      password: novicePass, // Updated: Use hashed password
+      role: 'novice',
       points: 50,
       badges: ['Lead Scout'], // Earned from basic quests
       email: 'novice@wraelen.com',
@@ -26,8 +26,8 @@ async function main() {
     update: {},
     create: {
       username: 'elite_rep',
-      password: elitePass,
-      role: 'ELITE', // Updated to use enum
+      password: elitePass, // Updated: Use hashed password
+      role: 'elite',
       points: 500,
       badges: ['Deal Closer', 'Quest Master'], // Advanced achievements
       email: 'elite@wraelen.com',
@@ -39,26 +39,26 @@ async function main() {
     update: {},
     create: {
       username: 'admin_rep',
-      password: adminPass,
-      role: 'ADMIN', // Updated to use enum
+      password: adminPass, // Updated: Use hashed password
+      role: 'admin',
       points: 1000,
       badges: ['Company Founder'],
       email: 'admin@wraelen.com',
     },
   });
 
-  // Fetch created users for relations (with null checks) - this defines 'novice' and 'elite' to fix TS2304
+  // Fetch created users for relations (with null checks)
   const novice = await prisma.user.findUnique({ where: { username: 'novice_rep' } });
   const elite = await prisma.user.findUnique({ where: { username: 'elite_rep' } });
+
   if (!novice || !elite) {
-    throw new Error('Failed to find seeded users—check upsert');
+    throw new Error('Failed to find seeded users—check createMany');
   }
 
   // Sample leads: Tied to reps, with scores for gamified bonuses (e.g., high-value = more XP)
-  const noviceLead = await prisma.lead.findFirst({ where: { url: 'https://zillow.com/lead/123' } });
-  if (!noviceLead) {
-    await prisma.lead.create({
-      data: {
+  await prisma.lead.createMany({
+    data: [
+      {
         userId: novice.id,
         address: '123 Test St, San Francisco, CA',
         price: '300,000',
@@ -73,13 +73,7 @@ async function main() {
         url: 'https://zillow.com/lead/123',
         score: 20, // Low score = basic bonus
       },
-    });
-  }
-
-  const eliteLead = await prisma.lead.findFirst({ where: { url: 'https://zillow.com/lead/456' } });
-  if (!eliteLead) {
-    await prisma.lead.create({
-      data: {
+      {
         userId: elite.id,
         address: '456 Elite Ave, Los Angeles, CA',
         price: '1,200,000',
@@ -94,8 +88,8 @@ async function main() {
         url: 'https://zillow.com/lead/456',
         score: 80, // High score = elite bonus/points multiplier
       },
-    });
-  }
+    ],
+  });
 
   console.log('Seeding complete: Users and leads added for gamification testing.');
 }

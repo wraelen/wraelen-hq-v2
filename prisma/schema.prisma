@@ -1,15 +1,15 @@
 // prisma/schema.prisma
 // This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+ // learn more about it in the docs: https://pris.ly/d/prisma-schema
+ // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+ // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mongodb" // Switched from postgresql to match your URI
+  provider = "mongodb"  // Switched from postgresql to match your URI
   url      = env("DATABASE_URL")
 }
 
@@ -17,48 +17,44 @@ enum Role {
   NOVICE
   ELITE
   ADMIN
-}
-// Added: Enum for type-safety on gamified roles (novice -> elite progression); defaults to NOVICE
+} // Added: Enum for type-safety on gamified roles (novice -> elite progression); defaults to NOVICE
 
 model User {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  username  String    @unique
-  password  String // Hashed; we'll manage via bcrypt in routes
-  role      Role      @default(NOVICE) // Updated: Use enum for gamified roles
-  email     String?   @unique
-  points    Int       @default(0) // XP for quests (e.g., +10 per lead imported)
-  badges    String[]  @default([]) // Achievements like "Lead Hunter" unlocked at thresholds
-  leads     Lead[] // One-to-many relation: Reps own their scraped leads
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  Account   Account[]
-  Session   Session[]
+  id       String   @id @default(auto()) @map("_id") @db.ObjectId
+  username String   @unique
+  password String   // Hashed; we'll manage via bcrypt in routes
+  role     Role     @default(NOVICE)  // Updated: Use enum for gamified roles
+  email    String?  @unique
+  points   Int      @default(0)  // XP for quests (e.g., +10 per lead imported)
+  badges   String[] @default([])  // Achievements like "Lead Hunter" unlocked at thresholds
+  leads    Lead[]   // One-to-many relation: Reps own their scraped leads
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Lead {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String   @db.ObjectId
-  address      String
-  price        String
-  beds         String
-  baths        String
-  sqFt         String
-  type         String   @default("Single Family")
-  daysOnMarket String
-  realtorName  String
-  realtorPhone String   @default("Contact for phone")
-  photo        String
-  url          String   @unique // Added: Prevents dupe scrapes, enables efficient lookups/upserts
-  score        Int      @default(0) // Auto-calculated value (e.g., high-price leads = bonus XP)
-  user         User     @relation(fields: [userId], references: [id])
-  createdAt    DateTime @default(now()) // Added: Track when scraped for sorting/aging
-  updatedAt    DateTime @updatedAt // Added: For updates (e.g., rescan price changes)
-
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String   @db.ObjectId
+  address       String
+  price         String
+  beds          String
+  baths         String
+  sqFt          String
+  type          String   @default("Single Family")
+  daysOnMarket  String
+  realtorName   String
+  realtorPhone  String   @default("Contact for phone")
+  photo         String
+  url           String   @unique // Added: Prevents dupe scrapes, enables efficient lookups/upserts
+  score         Int      @default(0)  // Auto-calculated value (e.g., high-price leads = bonus XP)
+  user          User     @relation(fields: [userId], references: [id])
+  createdAt     DateTime @default(now()) // Added: Track when scraped for sorting/aging
+  updatedAt     DateTime @updatedAt // Added: For updates (e.g., rescan price changes)
   @@index([userId]) // Added: Speed up per-rep queries (dashboard/leads list)
   @@index([score]) // Added: For sorts on high-value leads (leaderboards/bonuses)
 }
 
-// Added: Account model for Auth.js Prisma adapter (required for user creation/linking on login/register; handles OAuth/credentials providers)
+// Added: Account model for Auth.js Prisma adapter (required for user creation/linking on login/register; handles OAuth/credentials providers; no impact on existing code)
 model Account {
   id                String  @id @default(auto()) @map("_id") @db.ObjectId
   userId            String  @db.ObjectId
@@ -78,11 +74,9 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
-// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role)
+// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; no impact on existing code)
 model Session {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   sessionToken String   @unique
   userId       String   @db.ObjectId
   expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}

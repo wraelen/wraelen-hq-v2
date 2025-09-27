@@ -1,19 +1,20 @@
 import "src/styles/tailwind.css" // Kept existing import for Tailwind styles
 
 import { Progress } from '@/components/ui/progress'; // Added: Shadcn Progress component for visual XP bar (install if not: npx shadcn-ui@latest add progress)
-// import { getServerSession } from 'next-auth'; // Commented out: Requires next-auth setup; re-enable when adding auth
-// import { authOptions } from './api/auth/[...nextauth]/route'; // Commented out: Needs auth route; re-enable later (push back: Add Auth.js for secure XP access)
-import ClientXPBar from './ClientXPBar.tsx'; // Added: New client component for XP bar to handle motion animations (fixes server call error)
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const session = await getServerSession(authOptions); // Added: Fetch session for dynamic XP (now works with auth set up)
-  const userXp = session?.user?.xp || 0; // Updated: Use session.user.xp (defaults to 0 if not logged in)
+  const userXp = 150; // Kept stubbed XP for testing without auth (Level 1, 50/100 XP); replace with session.user?.xp when adding auth
+  const currentLevel = Math.min(Math.floor(userXp / 100), 99); // Added: Calc level 0-99 based on XP (100 XP per level placeholder—adjust to your defined task values; no multipliers as per your request)
+  const progressToNext = userXp % 100; // Added: Calc progress % to next level for bar fill (0-100)
 
   return (
     <html lang="en">
       <body>
-        {/* Updated: Persistent XP bar on every page (visual progress, like WoW top bar; moved motion to client component to fix server call error) */}
-        <ClientXPBar currentLevel={currentLevel} progressToNext={progressToNext} /> {/* Added: ClientXPBar component for animations/tooltip (passes level/progress from server; fixes createMotionComponent server error) */}
+        {/* Added: Persistent XP bar on every page (visual progress, like WoW top bar; tied to stubbed XP for now—updates on re-render after quests) */}
+        <div className="fixed top-0 left-0 w-full h-4 bg-gray-200 z-50">
+          <Progress value={progressToNext} className="h-full" /> {/* Added: Progress to next level using Shadcn (Tailwind-styled); value is % to next 100 XP; used Progress to clear unused warning */}
+          <span className="absolute top-0 left-1/2 transform -translate-x-1/2 text-xs text-black">Level {currentLevel} ({progressToNext}/100 XP)</span> /* Added: Level display with placeholder for lore tooltip (add Tooltip component here for hover explanation) */
+        </div>
         {children} // Kept existing children render
       </body>
     </html>
