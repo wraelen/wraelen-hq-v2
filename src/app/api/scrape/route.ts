@@ -1,25 +1,26 @@
-import { NextRequest, NextResponse } from 'next/server'; // Added: Import NextRequest (fixes TS2304 'Cannot find name 'NextRequest'')
-import { getServerSession } from 'next-auth';
+import { NextRequest, NextResponse } from 'next/server'; // Kept existing
+import { getServerSession } from 'next-auth'; // Added: For session check (fixes TS2345 params incompatible with authOptions import)
 import puppeteer from 'puppeteer'; // Kept existing
-import prisma from '@/lib/prisma'; // Added: Import prisma client (fixes TS18048 'prisma undefined' and 'quest' not on PrismaClient once model added)
+import prisma from '@/lib/prisma'; // Kept existing
+import { authOptions } from '../auth/[...nextauth]/route'; // Added: Import authOptions (fixes missing for getServerSession)
 
 interface ScrapeBody {
   url: string; // Pasted Zillow link
 }
 
-export async function POST(_request: NextRequest) { // Updated: Renamed 'request' to '_request' (fixes ESLint no-unused-vars; ^_ prefix allows unused per your config)
-  const session = await getServerSession(authOptions); // Kept existing; fixes TS2304 'session not found' with import
-  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export async function POST(_request: NextRequest) { // Kept existing
+  const session = await getServerSession(authOptions); // Updated: Use imported authOptions (fixes TS2345 incompatible params)
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 }); // Updated: Optional chaining for session.user?.id (fixes TS2339 'id' not on session.user')
 
   const body: ScrapeBody = await _request.json();
 
   try {
     const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
-    const page = await browser.newPage(); // Kept existing; 'page' is defined here (fixes TS2304 'page not found')
+    const page = await browser.newPage(); // Kept existing
     await page.goto(body.url, { waitUntil: 'networkidle2' });
 
     const data = await page.evaluate(() => {
-      const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || ''; // Updated: Typed sel as string (fixes TS7006 'sel any type')
+      const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || ''; // Kept existing
       const address = getText('span[data-testid="bed-bath-beyond-header"] > address');
       const price = getText('span[data-testid="price"]');
       const beds = getText('span[data-testid="bed-bath-item"] > span:first-child');
@@ -29,7 +30,7 @@ export async function POST(_request: NextRequest) { // Updated: Renamed 'request
       const daysOnMarket = getText('span[data-testid="days-on-zillow"]');
       const realtorName = getText('span[data-testid="attribution-AGENT-name"]');
       const realtorPhone = getText('a[data-testid="contact-phone"]') || 'Contact for phone';
-      const photoElement = document.querySelector('img[data-testid="hero-media-image"]') as HTMLImageElement | null; // Updated: Typecast as HTMLImageElement (fixes TS2339 'src not on Element'—querySelector returns Element, but img has src)
+      const photoElement = document.querySelector('img[data-testid="hero-media-image"]') as HTMLImageElement | null; // Kept existing
       const photo = photoElement?.src || '';
 
       const priceNum = parseInt(price.replace(/[^0-9]/g, '')) || 0;
@@ -42,7 +43,7 @@ export async function POST(_request: NextRequest) { // Updated: Renamed 'request
     await browser.close();
 
     // Save to leads (check dupe via url)
-    const existing = await prisma.lead.findFirst({ where: { url: body.url, userId: session.user.id } });
+    const existing = await prisma.lead.findFirst({ where: { url: body.url, userId: session.user.id } }); // Kept existing
     if (existing) return NextResponse.json({ error: 'Lead already scraped' }, { status: 400 });
 
     const lead = await prisma.lead.create({
@@ -52,7 +53,7 @@ export async function POST(_request: NextRequest) { // Updated: Renamed 'request
       },
     });
 
-    // Create quest entry (ties scrape to gamification)
+    // Create quest entry (ties scrape to gamification) - fixes TS2339 'quest' not on PrismaClient (Quest model added to schema)
     await prisma.quest.create({
       data: {
         type: "SCRAPE_ZILLOW",

@@ -34,6 +34,18 @@ model User {
   sessions Session[] // Added: Opposite relation for Session model (required for Prisma validation on relations; links sessions to User without impacting existing code)
 }
 
+model Quest {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  type         String   // e.g., "SCRAPE_ZILLOW", "LOG_CALL"
+  userId       String   @db.ObjectId
+  leadId       String?  @db.ObjectId
+  pointsAwarded Int
+  completedAt  DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id])
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  @@index([userId, completedAt]) // Added: For rep quest history/leaderboards (sort by time/points)
+}
+
 model Lead {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
   userId        String   @db.ObjectId
