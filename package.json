@@ -26,7 +26,6 @@
     "prisma:seed": "npx prisma db seed"
   },
   "dependencies": {
-    "@auth/prisma-adapter": "^2.10.0",
     "@next/bundle-analyzer": "^15.3.1",
     "@opentelemetry/api-logs": "0.46.0",
     "@opentelemetry/instrumentation": "0.46.0",
@@ -71,13 +70,13 @@
     "lodash": "^4.17.21",
     "lucide-react": "^0.544.0",
     "next": "^15.5.4",
-    "next-auth": "5.0.0-beta.29",
     "next-rate-limit": "^0.0.3",
     "node-cron": "^4.2.1",
     "puppeteer": "24.22.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-leaflet": "^5.0.0",
+    "supabase": "2.45.5",
     "tailwind-merge": "^2.6.0",
     "three": "^0.180.0",
     "zod": "^3.24.4"
@@ -134,7 +133,6 @@
     "@vitejs/plugin-react": "^4.7.0",
     "@vitest/ui": "^3.2.4",
     "all-contributors-cli": "^6.26.1",
-    "bcryptjs": "^3.0.2",
     "cross-env": "^7.0.3",
     "dotenv": "^17.2.2",
     "eslint": "^9.26.0",
