@@ -1,8 +1,8 @@
 // prisma/schema.prisma
 // This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+ // learn more about it in the docs: https://pris.ly/d/prisma-schema
+ // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+ // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
   provider = "prisma-client-js"
@@ -30,6 +30,8 @@ model User {
   leads    Lead[]   // One-to-many relation: Reps own their scraped leads
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  accounts Account[] // Added: Opposite relation for Account model (required for Prisma validation on relations; links auth accounts to User without impacting existing code)
+  sessions Session[] // Added: Opposite relation for Session model (required for Prisma validation on relations; links sessions to User without impacting existing code)
 }
 
 model Lead {
@@ -74,11 +76,11 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
-// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; fixed syntax error by properly defining fields as 'field Type attributes')
+// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; fixed syntax by properly defining fields)
 model Session {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId // Fixed: Proper field definition (String @id etc.)
-  sessionToken String   @unique // Fixed: Proper field definition
-  userId       String   @db.ObjectId // Fixed: Proper field definition
-  expires      DateTime // Fixed: Proper field definition
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade) // Fixed: Proper relation definition
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  sessionToken String   @unique
+  userId       String   @db.ObjectId
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
