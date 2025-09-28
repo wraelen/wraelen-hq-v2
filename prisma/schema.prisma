@@ -74,6 +74,19 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
+// ... existing schema code
+model Quest {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  type         String   // e.g., "SCRAPE_ZILLOW", "LOG_CALL"
+  userId       String   @db.ObjectId
+  leadId       String?  @db.ObjectId
+  pointsAwarded Int
+  completedAt  DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id])
+  lead         Lead?    @relation(fields: [leadId], references: [id])
+  @@index([userId, completedAt]) // Added: For rep quest history/leaderboards (sort by time/points)
+}
+
 // Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; no impact on existing code)
 model Session {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
