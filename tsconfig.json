@@ -3,7 +3,12 @@
   "display": "Next.js",
   "compilerOptions": {
     "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext", "es2020"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext",
+      "es2020"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,17 +24,37 @@
     "jsx": "preserve",
     "incremental": true,
     "baseUrl": ".",
-    "paths": {  // Add this for @/ alias
-      "@/*": ["./src/*"],
-      "styles/*": ["./src/styles/*"] // Add this if styles/ under src/
+    "paths": { // Add this for @/ alias
+      "@/*": [
+        "./src/*"
+      ],
+      "styles/*": [
+        "./src/styles/*"
+      ] // Add this if styles/ under src/
     },
-    "types": ["node", "vitest/globals", "@testing-library/jest-dom"],
+    "types": [
+      "node",
+      "vitest/globals",
+      "@testing-library/jest-dom"
+    ],
     "plugins": [
       {
         "name": "next"
       }
     ]
   },
-  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", "src/**/*.mjs", "vitest.config.ts", ".next/types/**/*.ts", "eslint.config.mjs", "src/types/next-auth.d.ts"], // Added: "src/types/next-auth.d.ts" to include augmentation for NextAuth types (fixes session.user.id not found in callbacks/dashboard/layout)
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.mjs",
+    "vitest.config.ts",
+    ".next/types/**/*.ts",
+    "eslint.config.mjs",
+    "src/types/next-auth.d.ts"
+  ] // Added: "src/types/next-auth.d.ts" to include augmentation for NextAuth/JWT types (fixes TS2345 callbacks incompatible; best practice for custom session extensions)  "exclude": ["node_modules"]
+  ,
+  "exclude": [
+    "node_modules"
+  ]
 }
