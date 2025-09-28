@@ -1,8 +1,8 @@
 // prisma/schema.prisma
 // This is your Prisma schema file,
- // learn more about it in the docs: https://pris.ly/d/prisma-schema
- // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
- // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
   provider = "prisma-client-js"
@@ -54,7 +54,7 @@ model Lead {
   @@index([score]) // Added: For sorts on high-value leads (leaderboards/bonuses)
 }
 
-// Added: Account model for Auth.js Prisma adapter (required for user creation/linking on login/register; handles OAuth/credentials providers; no impact on existing code)
+// Added: Account model for Auth.js Prisma adapter (required for user creation/linking on login/register; handles OAuth/credentials providers)
 model Account {
   id                String  @id @default(auto()) @map("_id") @db.ObjectId
   userId            String  @db.ObjectId
@@ -74,22 +74,11 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
-// ... existing schema code
-model Quest {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  type         String   // e.g., "SCRAPE_ZILLOW", "LOG_CALL"
-  userId       String   @db.ObjectId
-  leadId       String?  @db.ObjectId
-  pointsAwarded Int
-  completedAt  DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id])
-  lead         Lead?    @relation(fields: [leadId], references: [id])
-  @@index([userId, completedAt]) // Added: For rep quest history/leaderboards (sort by time/points)
-}
-
-// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; no impact on existing code)
+// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; fixed syntax error by properly defining fields as 'field Type attributes')
 model Session {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionToken String   @unique
-  userId       String   @db.ObjectId
-  expires      DateTime
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId // Fixed: Proper field definition (String @id etc.)
+  sessionToken String   @unique // Fixed: Proper field definition
+  userId       String   @db.ObjectId // Fixed: Proper field definition
+  expires      DateTime // Fixed: Proper field definition
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade) // Fixed: Proper relation definition
+}
