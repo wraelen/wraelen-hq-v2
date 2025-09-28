@@ -1,18 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'; // Kept existing; fixes TS2304 'Cannot find name 'NextRequest''
-import { getServerSession } from 'next-auth'; // Added: For session check (fixes TS2304 'Cannot find name 'session'')
+import { NextRequest, NextResponse } from 'next/server'; // Added: Import NextRequest (fixes TS2304 'Cannot find name 'NextRequest'')
+import { getServerSession } from 'next-auth';
 import puppeteer from 'puppeteer'; // Kept existing
 import prisma from '@/lib/prisma'; // Added: Import prisma client (fixes TS18048 'prisma undefined' and 'quest' not on PrismaClient once model added)
-import { authOptions } from '../auth/[...nextauth]/route'; // Added: For authOptions (fixes import if missing)
 
 interface ScrapeBody {
   url: string; // Pasted Zillow link
 }
 
-export async function POST(_request: NextRequest) { // Updated: Renamed 'request' to '_request' (fixes ESLint no-unused-vars; ^_ prefix allows unused per your rule)
-  const session = await getServerSession(authOptions); // Added: Fetch session for user.id (fixes TS2304 'session not found')
+export async function POST(_request: NextRequest) { // Updated: Renamed 'request' to '_request' (fixes ESLint no-unused-vars; ^_ prefix allows unused per your config)
+  const session = await getServerSession(authOptions); // Kept existing; fixes TS2304 'session not found' with import
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body: ScrapeBody = await _request.json(); // Kept existing
+  const body: ScrapeBody = await _request.json();
 
   try {
     const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
@@ -73,7 +72,7 @@ export async function POST(_request: NextRequest) { // Updated: Renamed 'request
     if (updated.points >= 1000 && !updated.badges.includes('Elite Scraper')) {
       await prisma.user.update({
         where: { id: session.user.id },
-        data: { badges: { push: 'Elite Scraper' }, role: 'elite' },
+        data: { badges: { push: 'Elite Scraper' }, role: 'ELITE' }, // Updated: Uppercase 'ELITE' to match enum (fixes TS2820)
       });
     }
 

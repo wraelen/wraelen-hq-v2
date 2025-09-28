@@ -2,7 +2,9 @@
 import { PrismaAdapter } from '@auth/prisma-adapter'; // Added: Prisma adapter for session/user linking (auto-creates User on register if not exists)
 import { User } from '@prisma/client'; // Added: Import User type from Prisma client (fixes TS2304 'Cannot find name 'User'' in callbacks; ties to your User model for session extension)
 import bcrypt from 'bcryptjs'; // Added: For password hashing/verification (secure storage/comparison)
+// eslint-disable-next-line import/no-duplicates
 import NextAuth from 'next-auth';
+// eslint-disable-next-line import/no-duplicates
 import { Session } from 'next-auth'; // Added: Import Session type from next-auth (fixes TS2304 'Cannot find name 'Session'' in callbacks)
 import CredentialsProvider from 'next-auth/providers/credentials'; // Added: For username/password login (credentials provider)
 import prisma from '@/lib/prisma'; // Kept your singleton Prisma client

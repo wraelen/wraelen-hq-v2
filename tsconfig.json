@@ -30,6 +30,6 @@
       }
     ]
   },
-  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", "src/**/*.mjs", "vitest.config.ts", ".next/types/**/*.ts", "eslint.config.mjs"],
+  "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", "src/**/*.mjs", "vitest.config.ts", ".next/types/**/*.ts", "eslint.config.mjs", "src/types/next-auth.d.ts"], // Added: "src/types/next-auth.d.ts" to include augmentation for NextAuth types (fixes session.user.id not found in callbacks/dashboard/layout)
   "exclude": ["node_modules"]
 }
