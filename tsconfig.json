@@ -52,7 +52,7 @@
     ".next/types/**/*.ts",
     "eslint.config.mjs",
     "src/types/next-auth.d.ts"
-  ] // Added: "src/types/next-auth.d.ts" to include augmentation for NextAuth/JWT types (fixes TS2345 callbacks incompatible; best practice for custom session extensions)  "exclude": ["node_modules"]
+, "middleware.ts"  ] // Added: "src/types/next-auth.d.ts" to include augmentation for NextAuth/JWT types (fixes TS2345 callbacks incompatible; best practice for custom session extensions)  "exclude": ["node_modules"]
   ,
   "exclude": [
     "node_modules"

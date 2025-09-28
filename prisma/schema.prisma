@@ -9,7 +9,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mongodb" // Switched from postgresql to match your URI
+  provider = "mongodb" // Matches your URI; good for schemaless flexibility in badges/quests
   url      = env("DATABASE_URL")
 }
 
@@ -17,37 +17,35 @@ enum Role {
   NOVICE
   ELITE
   ADMIN
-}
-
-// Added: Enum for type-safety on gamified roles (novice -> elite progression); defaults to NOVICE
+} // Kept: Type-safe roles for gamification progression (e.g., unlock ELITE at 1000 points)
 
 model User {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId // Mongo ID setup
   username  String    @unique
-  password  String // Hashed; we'll manage via bcrypt in routes
-  role      Role      @default(NOVICE) // Updated: Use enum for gamified roles
+  password  String // Hashed via bcrypt in auth logic (never store plain)
+  role      Role      @default(NOVICE) // Enum ensures only valid roles; auto-upgrades via points thresholds
   email     String?   @unique
-  points    Int       @default(0) // XP for quests (e.g., +10 per lead imported)
-  badges    String[]  @default([]) // Achievements like "Lead Hunter" unlocked at thresholds
-  leads     Lead[] // One-to-many relation: Reps own their scraped leads
+  points    Int       @default(0) // XP system: Increment on quest complete (e.g., prisma.user.update({ data: { points: { increment: 50 } } }))
+  badges    String[]  @default([]) // Array for scalability; push new badges without schema changes
+  leads     Lead[] // Relation: Reps "own" leads for personal dashboards
+  quests    Quest[] // Renamed for clarity (was Quest[]); tracks rep progress
+  accounts  Account[] // Required opposite for Auth.js (enables user.accounts queries if needed)
+  sessions  Session[] // Required opposite for Auth.js (session cleanup on user delete)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-  accounts  Account[] // Added: Opposite relation for Account model (required for Prisma validation on relations; links auth accounts to User without impacting existing code)
-  sessions  Session[] // Added: Opposite relation for Session model (required for Prisma validation on relations; links sessions to User without impacting existing code)
-  Quest     Quest[]
 }
 
 model Quest {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  type          String // e.g., "SCRAPE_ZILLOW", "LOG_CALL"
+  type          String // e.g., "SCRAPE_ZILLOW", "LOG_CALL" – string for easy extension without enum
   userId        String   @db.ObjectId
-  leadId        String?  @db.ObjectId
+  leadId        String?  @db.ObjectId // Optional: Ties to specific lead if relevant (e.g., call quests)
   pointsAwarded Int
   completedAt   DateTime @default(now())
   user          User     @relation(fields: [userId], references: [id])
-  lead          Lead?    @relation(fields: [leadId], references: [id])
+  lead          Lead?    @relation(fields: [leadId], references: [id]) // ? for optional relation
 
-  @@index([userId, completedAt]) // Added: For rep quest history/leaderboards (sort by time/points)
+  @@index([userId, completedAt]) // Optimizes leaderboard queries (sort by recent/completion)
 }
 
 model Lead {
@@ -63,30 +61,30 @@ model Lead {
   realtorName  String
   realtorPhone String   @default("Contact for phone")
   photo        String
-  url          String   @unique // Added: Prevents dupe scrapes, enables efficient lookups/upserts
-  score        Int      @default(0) // Auto-calculated value (e.g., high-price leads = bonus XP)
+  url          String   @unique // Prevents dupes; use for upserts in scraping API
+  score        Int      @default(0) // Derived: e.g., high price/DOM = higher score/points
   user         User     @relation(fields: [userId], references: [id])
-  createdAt    DateTime @default(now()) // Added: Track when scraped for sorting/aging
-  updatedAt    DateTime @updatedAt // Added: For updates (e.g., rescan price changes)
-  Quest        Quest[]
+  quests       Quest[] // Opposite: Quests tied to this lead (e.g., follow-up calls)
+  createdAt    DateTime @default(now()) // For aging/filtering stale leads
+  updatedAt    DateTime @updatedAt // For rescans/updates
 
-  @@index([userId]) // Added: Speed up per-rep queries (dashboard/leads list)
-  @@index([score]) // Added: For sorts on high-value leads (leaderboards/bonuses)
+  @@index([userId]) // Fast per-rep lists
+  @@index([score]) // Sort high-value for bonuses/leaderboards
 }
 
-// Added: Account model for Auth.js Prisma adapter (required for user creation/linking on login/register; handles OAuth/credentials providers)
+// Auth.js required models (Prisma adapter for Mongo – adjusted IDs/fields for compatibility)
 model Account {
   id                String  @id @default(auto()) @map("_id") @db.ObjectId
   userId            String  @db.ObjectId
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.String
-  access_token      String? @db.String
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.String
+  id_token          String?
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -94,11 +92,18 @@ model Account {
   @@unique([provider, providerAccountId])
 }
 
-// Added: Session model for Auth.js Prisma adapter (required for session management; ties to User for extending with points/badges/role; fixed syntax by properly defining fields)
 model Session {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   sessionToken String   @unique
   userId       String   @db.ObjectId
   expires      DateTime
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token]) // Optional: For future email verification/SSO
 }

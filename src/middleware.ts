@@ -1,14 +1,14 @@
-// src/middleware.ts (new file—global auth guard for protected routes like /dashboard; redirects unauth to login; best practice for scale instead of per-page checks)
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from './auth/[...nextauth]/route'; // Kept existing: Import auth config (stub if not set up yet; push back: Add Auth.js for secure roles/XP access)
+// middleware.ts
+import { auth } from "./app/api/auth/[...nextauth]/route"; // v5 import
 
-export async function middleware(req) {
-  const session = await getServerSession(authOptions); // Fetch session in middleware (runs on all requests)
-  if (!session && req.nextUrl.pathname.startsWith('/dashboard')) { // Check for protected routes (e.g., /dashboard)
-    return NextResponse.redirect(new URL('/auth/signin', req.url)); // Redirect unauth to login
+export default auth((req) => {
+  const { nextUrl } = req;
+  if (!req.auth && nextUrl.pathname.startsWith("/dashboard")) {
+    return Response.redirect(new URL("/auth/signin", nextUrl)); // Redirect unauth
   }
-  return NextResponse.next(); // Proceed if auth or not protected
-}
+  // Role example: if (req.auth.user.role !== "ELITE" && nextUrl.pathname.startsWith("/elite-quests")) redirect to /upgrade
+});
 
-export const config = { matcher: ['/dashboard'] }; // Apply to /dashboard only
+export const config = {
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"], // All routes
+};
