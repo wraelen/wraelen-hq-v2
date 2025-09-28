@@ -1,10 +1,13 @@
 // src/app/api/auth/[...nextauth]/route.ts (new file—Auth.js config for login/register with credentials, Prisma adapter for User model integration, session extension for gamification fields)
 import { PrismaAdapter } from '@auth/prisma-adapter'; // Added: Prisma adapter for session/user linking (auto-creates User on register if not exists)
+import type { Role } from '@prisma/client';
 import bcrypt from 'bcryptjs'; // Added: For password hashing/verification (secure storage/comparison)
-import NextAuth from 'next-auth';
-import { JWT, Session } from 'next-auth'; // Added: Import Session/JWT types from next-auth (fixes TS2345 callbacks incompatible; JWT for token in session params)
+import NextAuth, { Session } from 'next-auth';
+import type { JWT } from 'next-auth/jwt';
 import CredentialsProvider from 'next-auth/providers/credentials'; // Added: For username/password login (credentials provider)
 import prisma from '@/lib/prisma'; // Kept your singleton Prisma client
+
+// Import Role type from Prisma client to ensure compatibility
 
 export const authOptions = {
   adapter: PrismaAdapter(prisma), // Added: Uses Prisma to store sessions/accounts, links to your User model (required for adapter; handles register/login auto)
