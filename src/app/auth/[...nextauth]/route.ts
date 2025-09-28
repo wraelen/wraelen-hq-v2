@@ -1,14 +1,11 @@
 // src/app/api/auth/[...nextauth]/route.ts (new file—Auth.js config for login/register with credentials, Prisma adapter for User model integration, session extension for gamification fields)
 import { PrismaAdapter } from '@auth/prisma-adapter'; // Added: Prisma adapter for session/user linking (auto-creates User on register if not exists)
-import type { Role } from '@prisma/client';
-
 import bcrypt from 'bcryptjs'; // Added: For password hashing/verification (secure storage/comparison)
 import NextAuth, { Session } from 'next-auth';
-import type { JWT } from 'next-auth/jwt';
+import { AdapterUser } from 'next-auth/adapters'; // Import AdapterUser type from next-auth/adapters
+import { JWT } from 'next-auth/jwt'; // Import JWT type from next-auth/jwt
 import CredentialsProvider from 'next-auth/providers/credentials'; // Added: For username/password login (credentials provider)
 import prisma from '@/lib/prisma'; // Kept your singleton Prisma client
-
-// Import Role type from Prisma client to ensure compatibility
 
 export const authOptions = {
   adapter: PrismaAdapter(prisma), // Added: Uses Prisma to store sessions/accounts, links to your User model (required for adapter; handles register/login auto)
@@ -30,12 +27,12 @@ export const authOptions = {
     }),
   ],
   callbacks: {
-    async session({ session, token }: { session: Session; token: JWT }) { // Updated: Use token instead of user (fixes TS2353 'id' not in session.user and TS2345 incompatible—NextAuth callbacks use token for JWT strategy; user is for database strategy)
+    async session({ session, token }: { session: Session; token: JWT }) { // Kept existing: Use token for JWT strategy (fixes TS2353 'id' not in session.user and TS2345 incompatible—NextAuth callbacks use token for custom fields)
       // Added: Extend session with gamification fields from token (points/badges/role for dashboard/XP bar; available in getServerSession; id from token.userId)
       session.user = { ...session.user, id: token.userId as string, role: token.role as Role, points: token.points as number, badges: token.badges as string[] };
       return session;
     },
-    async jwt({ token, user }: { token: JWT; user: import('@prisma/client').User }) { // Added: JWT callback to add custom fields to token (required for session extension in JWT strategy; copies from user on login)
+    async jwt({ token, user }: { token: JWT; user?: AdapterUser }) { // Updated: Type 'user' as AdapterUser (fixes TS2345 'any' and incompatible types in callbacks; AdapterUser for default NextAuth user on first login)
       if (user) {
         token.userId = user.id;
         token.role = user.role;
@@ -46,7 +43,7 @@ export const authOptions = {
     },
   },
   secret: process.env.JWT_SECRET, // Added: From .env (generate random string: openssl rand -base64 32)
-  session: { strategy: "jwt" as const }, // Kept existing
+  session: { strategy: "jwt" as const }, // Kept existing: JWT for session (simple for solo; switch to database for scale)
   pages: { signIn: '/auth/signin' }, // Added: Custom login page (create next for game-themed UI)
 };
 

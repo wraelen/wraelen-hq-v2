@@ -18,6 +18,7 @@ enum Role {
   ELITE
   ADMIN
 }
+
 // Added: Enum for type-safety on gamified roles (novice -> elite progression); defaults to NOVICE
 
 model User {
