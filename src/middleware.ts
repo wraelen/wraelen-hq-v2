@@ -1,7 +1,7 @@
 // src/middleware.ts (new file—global auth guard for protected routes like /dashboard; redirects unauth to login; best practice for scale instead of per-page checks)
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from './auth/[...nextauth]/route';
+import { authOptions } from './auth/[...nextauth]/route'; // Kept existing: Import auth config (stub if not set up yet; push back: Add Auth.js for secure roles/XP access)
 
 export async function middleware(req) {
   const session = await getServerSession(authOptions); // Fetch session in middleware (runs on all requests)

@@ -3,7 +3,7 @@ import "src/styles/tailwind.css" // Kept existing import for Tailwind styles
 import Link from 'next/link'; // Added: For client-side navigation links (best practice in Next.js—fast, no reloads for game-like feel on page changes)
 import { getServerSession } from 'next-auth'; // Kept existing: For fetching user session with XP/points (requires next-auth installed and authOptions defined in api/auth/[...nextauth]/route.ts)
 import { Progress } from '@/components/ui/progress'; // Kept existing: Shadcn Progress component for visual XP bar (install if not: npx shadcn-ui@latest add progress)
-import { authOptions } from './auth/[...nextauth]/route'; // Kept existing: Import auth config (stub if not set up yet; push back: Add Auth.js for secure roles/XP access)
+import { authOptions } from './api/auth/[...nextauth]/route'; // Kept existing: Import auth config (stub if not set up yet; push back: Add Auth.js for secure roles/XP access)
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions); // Kept existing: Fetch session server-side to get user XP/points (safe for async layout in Next.js app dir)
