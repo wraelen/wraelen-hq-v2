@@ -1,109 +1,33 @@
-// prisma/schema.prisma
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
+// prisma/schema.prisma – Supabase handles auth.users; Prisma for custom gamification data (relational for efficient queries like leaderboards)
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "mongodb" // Matches your URI; good for schemaless flexibility in badges/quests
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // References .env var – fixes your error; keeps creds secure
 }
 
-enum Role {
-  NOVICE
-  ELITE
-  ADMIN
-} // Kept: Type-safe roles for gamification progression (e.g., unlock ELITE at 1000 points)
+model Profile {
+  id     String   @id @default(uuid()) @db.Uuid // UUID for direct linking to Supabase user_id (best practice for relations)
+  userId String   @unique @db.Uuid // Foreign key to supabase_auth.user_id (enforces 1:1)
+  role   String   @default("Novice") // Gamified: Update on point milestones (e.g., >1000 points → "Apprentice")
+  points Int      @default(0) // Increment server-side on quest completion (e.g., Zillow scrape validates → +50)
+  badges String[] @default([]) // Store as array; queryable for badges leaderboard (e.g., most unique badges)
+  // Expand later: e.g., quests Quest[] @relation("AssignedQuests") for user-quest links
+  Quest  Quest[]
 
-model User {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId // Mongo ID setup
-  username  String    @unique
-  password  String // Hashed via bcrypt in auth logic (never store plain)
-  role      Role      @default(NOVICE) // Enum ensures only valid roles; auto-upgrades via points thresholds
-  email     String?   @unique
-  points    Int       @default(0) // XP system: Increment on quest complete (e.g., prisma.user.update({ data: { points: { increment: 50 } } }))
-  badges    String[]  @default([]) // Array for scalability; push new badges without schema changes
-  leads     Lead[] // Relation: Reps "own" leads for personal dashboards
-  quests    Quest[] // Renamed for clarity (was Quest[]); tracks rep progress
-  accounts  Account[] // Required opposite for Auth.js (enables user.accounts queries if needed)
-  sessions  Session[] // Required opposite for Auth.js (session cleanup on user delete)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  @@index([points(desc)]) // Index for fast sorting on leaderboards (no-brainer optimization for your peer challenges)
 }
 
+// Optional: Add Quest model now for future-proofing (ties into your scraping/calls vision)
 model Quest {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  type          String // e.g., "SCRAPE_ZILLOW", "LOG_CALL" – string for easy extension without enum
-  userId        String   @db.ObjectId
-  leadId        String?  @db.ObjectId // Optional: Ties to specific lead if relevant (e.g., call quests)
-  pointsAwarded Int
-  completedAt   DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id])
-  lead          Lead?    @relation(fields: [leadId], references: [id]) // ? for optional relation
+  id          String  @id @default(uuid()) @db.Uuid
+  title       String // e.g., "Scrape 50 Zillow Leads"
+  description String?
+  points      Int // Reward on completion
+  criteria    String // JSON or text: e.g., "log 10 CallRail calls"
+  profileId   String? @db.Uuid // Optional assignment to user
 
-  @@index([userId, completedAt]) // Optimizes leaderboard queries (sort by recent/completion)
-}
-
-model Lead {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId       String   @db.ObjectId
-  address      String
-  price        String
-  beds         String
-  baths        String
-  sqFt         String
-  type         String   @default("Single Family")
-  daysOnMarket String
-  realtorName  String
-  realtorPhone String   @default("Contact for phone")
-  photo        String
-  url          String   @unique // Prevents dupes; use for upserts in scraping API
-  score        Int      @default(0) // Derived: e.g., high price/DOM = higher score/points
-  user         User     @relation(fields: [userId], references: [id])
-  quests       Quest[] // Opposite: Quests tied to this lead (e.g., follow-up calls)
-  createdAt    DateTime @default(now()) // For aging/filtering stale leads
-  updatedAt    DateTime @updatedAt // For rescans/updates
-
-  @@index([userId]) // Fast per-rep lists
-  @@index([score]) // Sort high-value for bonuses/leaderboards
-}
-
-// Auth.js required models (Prisma adapter for Mongo – adjusted IDs/fields for compatibility)
-model Account {
-  id                String  @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String  @db.ObjectId
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  sessionToken String   @unique
-  userId       String   @db.ObjectId
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token]) // Optional: For future email verification/SSO
+  profile Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull) // Loose relation for quest tracking
 }
