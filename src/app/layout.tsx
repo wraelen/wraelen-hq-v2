@@ -7,8 +7,8 @@ import { authOptions } from './auth/[...nextauth]/route'; // Kept existing: Impo
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions); // Kept existing: Fetch session server-side to get user XP/points (safe for async layout in Next.js app dir)
-  const userXp = session?.user?.xp || 0; // Kept existing: Get XP from session (defaults to 0 if not logged in or no XP field; add xp Int @default(0) to User model if not)
-  const currentLevel = Math.min(Math.floor(userXp / 100), 99); // Kept existing: Calc level 0-99 based on XP (100 XP per level placeholder—adjust to your defined task values; no multipliers as per your request)
+  const userXp = session?.user?.points || 0; // Updated: Get points from session (defaults to 0 if not logged in or no points field)
+  const currentLevel = Math.min(Math.floor(userXp / 100), 99); // Kept existing: Calc level 0-99 based on points (100 points per level placeholder—adjust to your defined task values; no multipliers as per your request)
 
   return (
     <html lang="en">

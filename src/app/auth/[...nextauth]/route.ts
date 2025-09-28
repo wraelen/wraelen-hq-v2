@@ -1,6 +1,7 @@
 // src/app/api/auth/[...nextauth]/route.ts (new file—Auth.js config for login/register with credentials, Prisma adapter for User model integration, session extension for gamification fields)
 import { PrismaAdapter } from '@auth/prisma-adapter'; // Added: Prisma adapter for session/user linking (auto-creates User on register if not exists)
 import type { Role } from '@prisma/client';
+
 import bcrypt from 'bcryptjs'; // Added: For password hashing/verification (secure storage/comparison)
 import NextAuth, { Session } from 'next-auth';
 import type { JWT } from 'next-auth/jwt';
@@ -34,7 +35,7 @@ export const authOptions = {
       session.user = { ...session.user, id: token.userId as string, role: token.role as Role, points: token.points as number, badges: token.badges as string[] };
       return session;
     },
-    async jwt({ token, user }: { token: JWT; user: any }) { // Added: JWT callback to add custom fields to token (required for session extension in JWT strategy; copies from user on login)
+    async jwt({ token, user }: { token: JWT; user: import('@prisma/client').User }) { // Added: JWT callback to add custom fields to token (required for session extension in JWT strategy; copies from user on login)
       if (user) {
         token.userId = user.id;
         token.role = user.role;

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'; // Kept existing
 import { getServerSession } from 'next-auth'; // Added: For session check (fixes TS2345 params incompatible with authOptions import)
 import puppeteer from 'puppeteer'; // Kept existing
+import { authOptions } from '@/app/auth/[...nextauth]/route'; // Corrected import path for authOptions
 import prisma from '@/lib/prisma'; // Kept existing
-import { authOptions } from '../auth/[...nextauth]/route'; // Added: Import authOptions (fixes missing for getServerSession)
+// Update the import path below to the correct location of your NextAuth config
 
 interface ScrapeBody {
   url: string; // Pasted Zillow link
