@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';  // For unauth redirect (best practi
 import prisma from '@/lib/prisma';  // Prisma singleton (logic: Relational fetch for profile – efficient, avoids multiple connections per request; best for scale as reps view dashboards concurrently)
 
 export default async function Dashboard() {
-  const cookieStore = cookies();  // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
+  const cookieStore = await cookies();  // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

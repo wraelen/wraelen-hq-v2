@@ -5,6 +5,7 @@ import type { Metadata } from 'next';  // Kept: Type-safe metadata (best for SEO
 import { Inter as FontSans } from 'next/font/google';  // Kept: Font opt (push back: Add monospace like 'Fira Code' for terminal feel – install via npm)
 import { cookies } from 'next/headers';  // For cookie store (best for server sessions – secure)
 import Link from 'next/link';  // Kept: Client nav (fast, no reloads – game-like flow for traversing levels/quests)
+import { redirect } from 'next/navigation';
 import { Progress } from '@/components/ui/progress';  // Kept: Shadcn for XP bar (install if missing: npx shadcn@latest add progress; visual motivator for reps)
 
 import prisma from '@/lib/prisma';  // Prisma singleton (logic: Get points/role – relational fetch for gamification)
@@ -22,7 +23,7 @@ export const metadata: Metadata = {  // Kept: Global meta (best for branding –
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = cookies();  // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
+  const cookieStore = await cookies();  // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
