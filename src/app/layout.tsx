@@ -1,17 +1,15 @@
-// src/app/layout.tsx – Root layout (server-side; best practice: Global metadata/UI like XP bar – efficient SSR, no client fetches)
+// src/app/layout.tsx – Root layout (server-side; best practice: Global metadata/UI like XP bar – efficient SSR, no client fetches for core elements)
 import 'src/styles/tailwind.css';  // Kept: Tailwind/globals (best for console/game theme – add monospace fonts/glow plugins later for "HQ" vibe)
-import { PrismaClient } from '@prisma/client';  // Added: Prisma for profile (logic: Get points/role – relational fetch for gamification)
-import { createServerClient } from '@supabase/ssr';  // Added: ssr client (logic: Async-safe sessions for Next.js 15+ – fixes cookies await; type-safe)
+import { createServerClient } from '@supabase/ssr';  // Supabase ssr (logic: Async-safe sessions – no NextAuth)
 import type { Metadata } from 'next';  // Kept: Type-safe metadata (best for SEO/internal search)
 import { Inter as FontSans } from 'next/font/google';  // Kept: Font opt (push back: Add monospace like 'Fira Code' for terminal feel – install via npm)
-import { cookies } from 'next/headers';  // Added: For cookie store (best for server sessions – secure, no client leaks)
+import { cookies } from 'next/headers';  // For cookie store (best for server sessions – secure)
 import Link from 'next/link';  // Kept: Client nav (fast, no reloads – game-like flow for traversing levels/quests)
 import { Progress } from '@/components/ui/progress';  // Kept: Shadcn for XP bar (install if missing: npx shadcn@latest add progress; visual motivator for reps)
 
+import prisma from '@/lib/prisma';  // Prisma singleton (logic: Get points/role – relational fetch for gamification)
 import { cn } from '@/lib/utils';  // Kept: Tailwind helper (best for conditional classes, e.g., role-based styling)
 
-
-const prisma = new PrismaClient();  // Logic: Server-only instance (best practice: No client DB access – secure for internal data like points)
 
 const fontSans = FontSans({
   subsets: ['latin'],
@@ -24,26 +22,22 @@ export const metadata: Metadata = {  // Kept: Global meta (best for branding –
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = cookies();  // Logic: Awaitable in Next.js 15+ (fixes async error – best practice for dynamic APIs)
+  const cookieStore = cookies();  // Logic: Awaitable in 15+ (secure cookie access – no sync dynamic errors)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (cookiesToSet) => {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
-        },
-      },
-    }
-  );  // Logic: ssr client (async-safe sessions – replaces old helpers)
+    { cookies: {
+      getAll: () => cookieStore.getAll(),
+      setAll: (cookiesToSet) => cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
+    } }
+  );  // Logic: ssr client (no NextAuth – simpler, native)
 
-  const { data: { session } } = await supabase.auth.getSession();  // Logic: Await fetch (fixes runtime error – best for SSR)
+  const { data: { session } } = await supabase.auth.getSession();  // Logic: Await fetch (async-safe)
 
   let xp = 0;  // Stub XP/points (logic: Fetch from Prisma if logged in – best for gamification display; update on point thresholds later, e.g., 1000 points = "Apprentice")
   let role = 'Guest';  // Default (push back: Use 'Novice' post-login; add badges UI)
   if (session) {
-    const profile = await prisma.profile.findUnique({ where: { userId: session.user.id } });  // Logic: Relational fetch (efficient join if expanding to quests)
+    const profile = await prisma.profile.findUnique({ where: { userId: session.user.id } });  // Logic: Singleton fetch (efficient)
     xp = profile?.points || 0;
     role = profile?.role || 'Novice';
   }
