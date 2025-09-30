@@ -1,13 +1,13 @@
-// src/app/layout.tsx – Root layout (server-side; best practice: Global metadata/UI like XP bar – efficient SSR, no client fetches)
+// src/app/layout.tsx – Root layout (server-side; best practice: Global metadata/UI like XP bar – efficient SSR, no client fetches for core elements)
 import 'src/styles/tailwind.css';  // Kept: Tailwind/globals (best for console/game theme – add monospace fonts/glow plugins later for "HQ" vibe)
-import { createServerClient } from '@supabase/ssr';  // Kept: ssr client (async-safe – no NextAuth)
+import { createServerClient } from '@supabase/ssr';  // Added: ssr client (logic: Async-safe sessions for Next.js 15+ – fixes cookies await; type-safe)
 import type { Metadata } from 'next';  // Kept: Type-safe metadata (best for SEO/internal search)
 import { Inter as FontSans } from 'next/font/google';  // Kept: Font opt (push back: Add monospace like 'Fira Code' for terminal feel – install via npm)
-import { cookies } from 'next/headers';  // Kept: Cookie store (secure for sessions)
+import { cookies } from 'next/headers';  // For cookie store (best for server sessions – secure)
 import Link from 'next/link';  // Kept: Client nav (fast, no reloads – game-like flow for traversing levels/quests)
-import { Progress } from '@/components/ui/progress';  // Kept: Shadcn for XP bar (visual motivator for reps)
+import { Progress } from '@/components/ui/progress';  // Kept: Shadcn for XP bar (install if missing: npx shadcn@latest add progress; visual motivator for reps)
 
-import prisma from '@/lib/prisma';  // Kept: Singleton (perf win for fetches)
+import prisma from '@/lib/prisma';  // Prisma singleton (logic: Get points/role – relational fetch for gamification)
 import { cn } from '@/lib/utils';  // Kept: Tailwind helper (best for conditional classes, e.g., role-based styling)
 
 
@@ -22,12 +22,7 @@ export const metadata: Metadata = {  // Kept: Global meta (best for branding –
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Logic: Env guard (push back: Fail fast if vars missing – best for dev/prod; fixes "required" error if env not loaded on hot reload)
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    throw new Error('Supabase URL and Anon Key are required – check .env.local');
-  }
-
-    const cookieStore = await cookies();  // Updated: Await cookies (fixes sync warning – best for dynamic APIs in 15+; Turbopack safe)
+  const cookieStore = cookies();  // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -35,7 +30,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
     } }
-  );
+  );  // Logic: ssr client (no NextAuth – simpler, native)
 
   const { data: { session } } = await supabase.auth.getSession();  // Logic: Await fetch (async-safe – best for SSR)
 
