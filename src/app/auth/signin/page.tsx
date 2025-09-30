@@ -2,14 +2,12 @@
 'use client';  // Logic: Client component (best for form state – no SSR overhead for inputs; push back: Server actions for mutations if scaling auth heavy)
 
 import { createClient } from '@supabase/supabase-js';  // Updated: Base package client (no helpers – lighter, future-proof; uses NEXT_PUBLIC vars for browser)
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 export default function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   // Logic: Client-side creation (best practice: Use base createClient for browser – env vars available via process.env.NEXT_PUBLIC_*; no cookies needed on client as sessions persist via localStorage/JWT)
   const supabase = createClient(
@@ -21,7 +19,10 @@ export default function SignIn() {
     e.preventDefault();
     const { error } = await supabase.auth.signInWithPassword({ email, password });  // Logic: Supabase native (hashing/JWT auto – no custom bcrypt)
     if (error) setError(error.message);  // UX: Feedback for flow (e.g., "Invalid credentials" – improves rep login experience)
-    else router.push('/dashboard');  // Logic: Redirect to HQ (smooth, client-side – best for game-like navigation)
+    else {
+      console.log('Login success – redirecting...');  // Logic: Dev log (confirm if this prints – if yes, issue is with router; if no, login failed silently)
+      window.location.href = '/dashboard';  // Updated: Hard redirect (push back: Better than router.push for post-auth – forces full reload to ensure middleware sees new session; avoids App Router bugs in Turbopack for reliable flow)
+    }
   };
 
   return (

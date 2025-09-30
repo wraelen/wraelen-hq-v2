@@ -47,7 +47,7 @@ export default function SignUp() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          classClassName="w-full mb-6 p-2 bg-black border border-green-500 text-green-400 focus:outline-none focus:border-green-300"
+          className="w-full mb-6 p-2 bg-black border border-green-500 text-green-400 focus:outline-none focus:border-green-300"
         />
         <button type="submit" className="w-full p-2 bg-green-500 text-black hover:bg-green-600">Sign Up</button>
         <p className="mt-4 text-center">Already have an account? <Link href="/auth/signin" className="underline hover:text-green-300">Login</Link></p>  // Logic: Link to signin (fast nav – improves flow for existing reps)
