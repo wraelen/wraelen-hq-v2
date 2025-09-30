@@ -1,7 +1,7 @@
-// src/app/auth/signin/page.tsx – Login form (client-side for state; ssr component client – best for Next.js 15+)
-'use client';
+// src/app/auth/signin/page.tsx – Login form (client-side for interactivity; base Supabase client for browser mutations – best for Next.js 15+ pivot, async-safe without deprecated helpers)
+'use client';  // Logic: Client component (best for form state – no SSR overhead for inputs; push back: Server actions for mutations if scaling auth heavy)
 
-import { createServerClient } from '@supabase/ssr';  // ssr helper (async-safe – fixes errors; best for client mutations)
+import { createClient } from '@supabase/supabase-js';  // Updated: Base package client (no helpers – lighter, future-proof; uses NEXT_PUBLIC vars for browser)
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -10,20 +10,25 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const supabase = createServerClient();  // Logic: Component client (browser-safe for signIn – replaces placeholder; ssr handles async cookies)
+
+  // Logic: Client-side creation (best practice: Use base createClient for browser – env vars available via process.env.NEXT_PUBLIC_*; no cookies needed on client as sessions persist via localStorage/JWT)
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,  // Logic: Required (throws if missing – guard in dev if needed, but Next.js loads .env.local auto)
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });  // Logic: Supabase verification (hashing auto)
-    if (error) setError(error.message);
-    else router.push('/dashboard');
+    const { error } = await supabase.auth.signInWithPassword({ email, password });  // Logic: Supabase native (hashing/JWT auto – no custom bcrypt)
+    if (error) setError(error.message);  // UX: Feedback for flow (e.g., "Invalid credentials" – improves rep login experience)
+    else router.push('/dashboard');  // Logic: Redirect to HQ (smooth, client-side – best for game-like navigation)
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-black text-green-400 font-mono">
       <form onSubmit={handleSignIn} className="p-8 border-2 border-green-500 rounded-lg shadow-[0_0_15px_rgba(0,255,0,0.7)] bg-black/80">
         <h2 className="text-2xl mb-6 text-center">Enter Wraelen HQ</h2>
-        {error && <p className="text-red-500 mb-4">{error}</p>}
+        {error && <p className="text-red-500 mb-4">{error}</p>}  // Logic: Conditional error (best for UX – clear, non-blocking)
         <input
           type="email"
           placeholder="Email"
