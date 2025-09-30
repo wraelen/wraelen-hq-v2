@@ -27,15 +27,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     throw new Error('Supabase URL and Anon Key are required – check .env.local');
   }
 
-  const cookieStore = cookies();  // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
+    const cookieStore = await cookies();  // Updated: Await cookies (fixes sync warning – best for dynamic APIs in 15+; Turbopack safe)
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (cookiesToSet) => cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
     } }
-  );  // Logic: ssr client (async-safe sessions – replaces old helpers)
+  );
 
   const { data: { session } } = await supabase.auth.getSession();  // Logic: Await fetch (async-safe – best for SSR)
 

@@ -1,11 +1,11 @@
 // src/app/auth/signup/page.tsx – Signup form (client-side for interactivity; base Supabase client for browser mutations – best for Next.js 15+ pivot, async-safe without deprecated helpers)
-'use client';  // Logic: Client component (best for form state – no SSR overhead for inputs; push back: Server actions for mutations if scaling auth heavy)
+'use client';  // Logic: Client component (best for form state – no SSR overhead for inputs; push back: Add server actions for mutations if scaling auth heavy)
 
 import { createClient } from '@supabase/supabase-js';  // Base package client (no helpers – lighter, future-proof; uses NEXT_PUBLIC vars for browser)
-import { revalidatePath } from 'next/cache';  // For cache invalidation (optimizes post-signup dashboard load – fresh data without manual refresh)
+import Link from 'next/link';  // Added: For login link (fast nav – best for flow between signup/signin)
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import prisma from '@/lib/prisma';  // Prisma singleton (logic: For server action – relational profile creation for gamification init; best for scale as reps grow)
+import { createInitialProfile } from 'src/app/auth/signup/action.ts';  // Server action import (logic: Call for profile creation – secure, atomic after Supabase signup)
 
 export default function SignUp() {
   const [email, setEmail] = useState('');
@@ -47,26 +47,11 @@ export default function SignUp() {
           placeholder="Password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full mb-6 p-2 bg-black border border-green-500 text-green-400 focus:outline-none focus:border-green-300"
+          classClassName="w-full mb-6 p-2 bg-black border border-green-500 text-green-400 focus:outline-none focus:border-green-300"
         />
         <button type="submit" className="w-full p-2 bg-green-500 text-black hover:bg-green-600">Sign Up</button>
         <p className="mt-4 text-center">Already have an account? <Link href="/auth/signin" className="underline hover:text-green-300">Login</Link></p>  // Logic: Link to signin (fast nav – improves flow for existing reps)
       </form>
     </div>
   );
-}
-
-// Server action (logic: 'use server' – runs server-side only, secure for DB ops; creates initial profile tied to Supabase user ID – best for relational gamification data like points/badges)
-'use server';
-
-export async function createInitialProfile(userId: string) {
-  await prisma.profile.create({
-    data: {
-      userId,  // Logic: Links to Supabase user.id (UUID – enables efficient joins for quests/leaderboards, e.g., top points by role)
-      role: 'Novice',  // Logic: Initial role (gamification start – unlock 'Apprentice' at 1000 points via future API threshold check)
-      points: 0,  // Logic: Start at zero (earn via quests like Zillow scrapes or CallRail logs – increment in API routes)
-      badges: [],  // Logic: Empty array (add strings like 'LeadScraper' on quest completion – queryable for badges leaderboard)
-    },
-  });
-  revalidatePath('/dashboard');  // Logic: Invalidates cache (ensures dashboard shows fresh profile data post-signup – best for seamless flow after redirect)
 }
