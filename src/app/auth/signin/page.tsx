@@ -46,3 +46,7 @@ export default function SignIn() {
     </div>
   );
 }
+
+function createClientComponentClient() {
+  throw new Error('Function not implemented.');
+}
