@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'; // Kept existing
 import { getServerSession } from 'next-auth'; // Added: For session check (fixes TS2345 params incompatible with authOptions import)
 import puppeteer from 'puppeteer'; // Kept existing
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'; // Corrected import path for authOptions
 import prisma from '@/lib/prisma'; // Kept existing
+import { authOptions } from '@/app/api/auth/[...nextauth]/route'; // Corrected import path for authOptions
 // Update the import path below to the correct location of your NextAuth config
 
 interface ScrapeBody {

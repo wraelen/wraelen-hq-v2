@@ -1,7 +1,6 @@
 // app/auth/signin/page.tsx – Themed login form (client-side for interactivity; integrates Supabase auth)
 'use client';  // Client component (forms need state)
 
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
