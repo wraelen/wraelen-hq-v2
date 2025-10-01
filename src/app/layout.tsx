@@ -1,5 +1,5 @@
 // src/app/layout.tsx – Root layout (server-side; best practice: Global metadata/UI like XP bar – efficient SSR, no client fetches for core elements)
-import 'src/styles/tailwind.css';  // Kept: Tailwind/globals (best for console/game theme – add monospace fonts/glow plugins later for "HQ" vibe)
+import '@/styles/tailwind.css';  // Kept: Tailwind/globals (best for console/game theme – add monospace fonts/glow plugins later for "HQ" vibe)
 import { createServerClient } from '@supabase/ssr';  // Added: ssr client (logic: Async-safe sessions for Next.js 15+ – fixes cookies await; type-safe)
 import type { Metadata } from 'next';  // Kept: Type-safe metadata (best for SEO/internal search)
 import { Inter as FontSans } from 'next/font/google';  // Kept: Font opt (push back: Add monospace like 'Fira Code' for terminal feel – install via npm)

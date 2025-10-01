@@ -3,15 +3,13 @@
 
 import { createClient } from '@supabase/supabase-js';  // Base package client (no helpers – lighter, future-proof; uses NEXT_PUBLIC vars for browser)
 import Link from 'next/link';  // Added: For login link (fast nav – best for flow between signup/signin)
-import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { createInitialProfile } from 'src/app/auth/signup/action.ts';  // Server action import (logic: Call for profile creation – secure, atomic after Supabase signup)
+import { createInitialProfile } from './action.ts';  // Server action import (logic: Call for profile creation – secure, atomic after Supabase signup)
 
 export default function SignUp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
 
   // Logic: Client-side creation (best practice: Use base createClient for browser – env vars available via process.env.NEXT_PUBLIC_*; no cookies needed on client as sessions persist via localStorage/JWT)
   const supabase = createClient(
@@ -26,7 +24,7 @@ export default function SignUp() {
       setError(error.message);  // UX: Friendly feedback for flow (e.g., "Email in use" or "Password too weak" – improves onboarding experience for new reps)
     } else if (user) {
       await createInitialProfile(user.id);  // Server action call (logic: Creates linked Prisma profile immediately after signup – atomic to ensure gamification data (role/points) is ready for first dashboard load; best for consistency)
-      router.push('/dashboard');  // Logic: Redirect to HQ (smooth, client-side – best for game-like navigation after signup)
+      window.location.href = '/dashboard';  // Updated: Hard redirect (push back: Better than router.push for post-auth – forces full reload to ensure middleware sees new session; avoids App Router bugs in Turbopack for reliable flow)
     }
   };
 

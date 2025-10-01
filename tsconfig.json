@@ -23,10 +23,10 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "baseUrl": ".",
+    "baseUrl": "src",
     "paths": { // Add this for @/ alias
       "@/*": [
-        "./src/*"
+        "././*"
       ],
       "styles/*": [
         "./src/styles/*"
@@ -50,8 +50,7 @@
     "src/**/*.mjs",
     "vitest.config.ts",
     ".next/types/**/*.ts",
-    "eslint.config.mjs",
-    "src/types/next-auth.d.ts"
+    "eslint.config.mjs"
 , "middleware.ts"  ] // Added: "src/types/next-auth.d.ts" to include augmentation for NextAuth/JWT types (fixes TS2345 callbacks incompatible; best practice for custom session extensions)  "exclude": ["node_modules"]
   ,
   "exclude": [
