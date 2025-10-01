@@ -1,0 +1,41 @@
+// src/lib/actions.ts – Server actions for auth (best practice: Centralize mutations – efficient, type-safe; push back: Avoid client auth for cookie sync in Next.js; scales for quests/leaderboards with RLS)
+'use server';  // Logic: Marks as server-only (no client bundle bloat – optimizes for internal app with leads/calls)
+
+import { createServerClient } from '@supabase/ssr';  // SSR package (cookie-aware – fixes session propagation)
+import { cookies } from 'next/headers';  // Next utility (reads/sets cookies server-side – no manual JWT handling)
+import { redirect } from 'next/navigation';  // Server redirect (reliable – no client hacks; best for post-auth flow to dashboard quests)
+import type { Database } from '@/types/supabase';  // Types (autocompletes e.g., session.user.id for Prisma sync – regenerate on schema changes)
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;  // Logic: Required env (fail-fast if missing – matches middleware guard)
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+// Action: Server-side login (logic: FormData input for easy <form> binding; validates, mutates, redirects – handles cookies auto for middleware)
+export async function signInAction(formData: FormData) {
+  const email = formData.get('email')?.toString() ?? '';  // Logic: Safe extraction (push back: Add zod validation here for prod – prevents invalid emails in rep onboarding)
+  const password = formData.get('password')?.toString() ?? '';
+
+  if (!email || !password) {
+    redirect('/auth/signin?error=Email and password are required');  // Logic: Early validation redirect (UX-friendly – appends query param for error display; no-brainer for form feedback)
+  }
+  if (password.length < 6) {
+    redirect('/auth/signin?error=Password must be at least 6 characters');  // Logic: Basic check (expand for strength in gamified app – e.g., tie to "security quest" badge)
+  }
+
+  const cookieStore = cookies();  // Logic: Next headers (dynamic – reads current request cookies for session check)
+  const supabase = createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll: () => cookieStore.getAll(),  // Logic: Pass current cookies (enables session read – fixes undefined in middleware)
+      setAll: (cookiesToSet) => {
+        cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options));  // Logic: Sets response cookies (auto-sync after auth – key to bug fix)
+      },
+    },
+  });
+
+  const { error } = await supabase.auth.signInWithPassword({ email, password });  // Logic: Server mutation (hashes/JWT auto – no custom logic; ties to Supabase users table for RLS on quests)
+
+  if (error) {
+    redirect(`/auth/signin?error=${encodeURIComponent(error.message)}`);  // Logic: Error redirect (preserves message – e.g., "Invalid credentials"; best for debugging without console spam)
+  }
+
+  redirect('/dashboard');  // Logic: Success redirect (middleware now sees session – seamless to game HQ; change to '/hq' or dynamic based on rep level if needed)
+}
