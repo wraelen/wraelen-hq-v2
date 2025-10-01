@@ -1,27 +1,28 @@
 // src/app/auth/signin/page.tsx – Login form (client-side for interactivity; base Supabase client for browser mutations – best for Next.js 15+ pivot, async-safe without deprecated helpers)
 'use client';  // Logic: Client component (best for form state – no SSR overhead for inputs; push back: Server actions for mutations if scaling auth heavy)
 
-import { createClient } from '@supabase/supabase-js';  // Updated: Base package client (no helpers – lighter, future-proof; uses NEXT_PUBLIC vars for browser)
 import { useState } from 'react';
+import { getClientSupabase } from '@/lib/supabaseClient';  // Updated: Singleton utility (logic: Memoized client – fixes multiple GoTrueClient warning; best for browser context consistency)
 
 export default function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Logic: Client-side creation (best practice: Use base createClient for browser – env vars available via process.env.NEXT_PUBLIC_*; no cookies needed on client as sessions persist via localStorage/JWT)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,  // Logic: Required (throws if missing – guard in dev if needed, but Next.js loads .env.local auto)
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  // Logic: Client-side singleton (best practice: Use getClientSupabase to get memoized client – env vars available via process.env.NEXT_PUBLIC_*; no cookies needed on client as sessions persist via localStorage/JWT; fixes multiple instances)
+  const supabase = getClientSupabase();
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (password.length < 6) return setError('Password must be at least 6 characters');  // Logic: Client validation (push back: Add more like email format check – best for UX/security, prevents weak creds in internal app with leads)
     const { error } = await supabase.auth.signInWithPassword({ email, password });  // Logic: Supabase native (hashing/JWT auto – no custom bcrypt)
-    if (error) setError(error.message);  // UX: Feedback for flow (e.g., "Invalid credentials" – improves rep login experience)
-    else {
-      console.log('Login success – redirecting...');  // Logic: Dev log (confirm if this prints – if yes, issue is with router; if no, login failed silently)
-      window.location.href = '/dashboard';  // Updated: Hard redirect (push back: Better than router.push for post-auth – forces full reload to ensure middleware sees new session; avoids App Router bugs in Turbopack for reliable flow)
+    if (error) {
+      setError(error.message);  // UX: Feedback for flow (e.g., "Invalid credentials" – improves rep login experience)
+      console.error('Login error:', error.message);  // Logic: Dev log (best for debugging – check browser console if no redirect)
+    } else {
+      console.log('Login success – redirecting...');  // Logic: Dev log (confirm if this prints – if yes, signIn succeeded; if no, auth failed)
+      await supabase.auth.getSession();  // Logic: Force session sync (best practice: Ensures JWT/localStorage updated before redirect – fixes timing bug where middleware sees no session; no-brainer for reliable post-login flow)
+      window.location.href = '/signup';  // Kept: Hard redirect (your tweak – reliable for session sync; push back: If you want client push, add useRouter and router.refresh() before router.push('/dashboard') for smoother "game" transition without reload)
     }
   };
 
