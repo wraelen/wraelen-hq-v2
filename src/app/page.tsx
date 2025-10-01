@@ -1,7 +1,7 @@
 import { Metadata } from "next"
+import { LP_GRID_ITEMS } from "../../lp-items"
 
-import { LP_GRID_ITEMS } from "lp-items"
-import { Button } from "src/components/Button/Button"
+import { Button } from "../components/Button/Button"
 
 
 export const metadata: Metadata = {

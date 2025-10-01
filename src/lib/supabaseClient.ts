@@ -1,6 +1,6 @@
 // src/lib/supabaseClient.ts – Centralized Supabase clients (efficient: Memoizes creation, type-safe with DB schema; best for scalability in gamified features like real-time quest updates/leaderboards)
 import { createClient } from '@supabase/supabase-js';  // Base package for client (browser-safe – no ssr on client; push back: ssr for server only)
-import type { Database } from '@/types/supabase';  // Generated types (autocompletes e.g., profile.points; regenerate on schema changes)
+import type { Database } from '../types/database.types';  // Generated types (autocompletes e.g., profile.points; regenerate on schema changes)
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
