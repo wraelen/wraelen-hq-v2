@@ -43,14 +43,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
   return (
     <html lang="en">
-      <body className={cn('min-h-screen bg-background font-sans antialiased', fontSans.variable)}> // Kept: Tailwind base (best for responsive HQ dashboard)
-        <header className="p-4 bg-black text-green-400 border-b border-green-500"> // Added: Themed header (console vibe – green-on-black for "game" feel)
+      <body className={cn('min-h-screen bg-background font-sans antialiased', fontSans.variable)}> 
+        <header className="p-4 bg-black text-green-400 border-b border-green-500"> 
           <nav className="flex justify-between items-center">
-            <Link href="/" className="text-2xl font-bold">Wraelen HQ</Link> // Logic: Home link (fast nav – best for flow between quests)
+            <Link href="/" className="text-2xl font-bold">Wraelen HQ</Link> 
             <div className="flex items-center gap-4">
-              <span>Role: {role}</span> // Logic: Display role (motivates leveling; update on point thresholds)
-              <Progress value={(xp / 1000) * 100} className="w-32" /> // Logic: XP bar (visual progress – stub max 1000; customize for levels)
-              {session ? <form action={async () => { 'use server'; await supabase.auth.signOut(); redirect('/auth/signin'); }}><button type="submit">Logout</button></form> : <Link href="/auth/signin">Login</Link>} // Logic: Auth toggle (server action for logout – best practice: Secure, no client JS)
+              <span>Role: {role}</span> 
+              <Progress value={(xp / 1000) * 100} className="w-32" /> 
+              {session ? <form action={async () => { 'use server'; await supabase.auth.signOut(); redirect('/auth/signin'); }}><button type="submit">Logout</button></form> : <Link href="/auth/signin">Login</Link>} 
             </div>
           </nav>
         </header>
