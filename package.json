@@ -26,6 +26,7 @@
     "prisma:seed": "npx prisma db seed"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
     "@next/bundle-analyzer": "^15.3.1",
     "@opentelemetry/api-logs": "0.46.0",
     "@opentelemetry/instrumentation": "0.46.0",
@@ -77,11 +78,12 @@
     "puppeteer": "24.22.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-hook-form": "^7.63.0",
     "react-leaflet": "^5.0.0",
     "supabase": "2.45.5",
     "tailwind-merge": "^2.6.0",
     "three": "^0.180.0",
-    "zod": "^3.24.4"
+    "zod": "^4.1.11"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
