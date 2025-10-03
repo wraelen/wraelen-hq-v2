@@ -1,7 +1,7 @@
+// src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart)
 'use server'; // Logic: Marks as server-only (no client bundle bloat – optimizes for internal app with leads/calls)
 import { PrismaClient } from '@prisma/client';  // Your DB client (async-safe in actions)
-import { createServerClient } from '@supabase/ssr'; // SSR package (server-aware – auto-handles cookies via proxy; middleware refreshes post-redirect)
-import { cookies } from 'next/headers'; // Next utility (dynamic read for session check – set ignored in actions, as middleware handles)
+import { createSupabaseServerClient } from '@/lib/supabaseServer'; // Use async helper (fixes warnings in actions too)
 import { redirect } from 'next/navigation'; // Server redirect (reliable – no client hacks; best for post-auth flow to dashboard quests)
 import Papa from 'papaparse'; // Logic: CSV parser (handles headers, errors – best for Propstream exports)
 import Twilio from 'twilio'; // Logic: Twilio SDK for outbound calls (inexpensive, reliable integration)
@@ -9,8 +9,6 @@ import { z } from 'zod';  // Validation (type-safe inputs – prevents junk data
 import crypto from 'crypto';  // Built-in hash (no extra deps – for address_hash dedup)
 import type { Database } from '../types/database.types'; // Types (autocompletes e.g., session.user.id for Prisma sync – now fixed via your gen)
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!; // Logic: Required env (fail-fast if missing – matches middleware guard)
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const prisma = new PrismaClient();  // Global instance (efficient in Next.js actions – auto-closes; push back: Cache in lib/prisma.ts for hot reloads if issues)
 
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN); // Logic: Init Twilio (guard env in prod)
@@ -18,6 +16,26 @@ const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_A
 const importSchema = z.object({
   source: z.literal('propstream'), // Logic: Locked to Propstream for now (expand later)
 });  // Logic: Zod for form (file handled separately)
+
+// Action: Sign in (logic: Basic stub – expand with your original zod/email/password validation; centralized for type-safety)
+export async function signInAction(formData: FormData) {
+  const email = formData.get('email')?.toString() ?? '';
+  const password = formData.get('password')?.toString() ?? '';
+  // ... (add your validation/error returns here; e.g., zod schema for email/password)
+  const supabase = await createSupabaseServerClient(); // Logic: Async client (Next 15 safe)
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    return { error: error.message };
+  }
+  redirect('/dashboard'); // Logic: Post-login to HQ (quests await!)
+}
+
+// Action: Sign out (logic: Centralized mutation – avoids serialization issues in layout; redirects to signin)
+export async function signOutAction() {
+  const supabase = await createSupabaseServerClient(); // Logic: Async client (consistent fix)
+  await supabase.auth.signOut(); // Logic: Clears session (middleware will redirect unauthed requests)
+  redirect('/auth/signin'); // Logic: Post-signout flow (back to login – update to '/' if public landing needed)
+}
 
 // Action: Import from Propstream CSV (logic: Parse file → per-row extract/map → batch upsert properties/create leads – returns results for UX)
 export async function importDataAction(formData: FormData) {
@@ -44,7 +62,7 @@ export async function importDataAction(formData: FormData) {
   const rows = parsed.data as Record<string, any>[]; // Logic: Typed rows (Propstream columns like 'Property Address', 'AVM', etc.)
   const results = await Promise.allSettled(rows.map(async (row, index) => { // Logic: Parallel for speed; settled for per-row errors
     try {
-      // Map Propstream columns to extracted data (flexible – handle variants/missing; based on common exports)
+      // Map Propstream columns to extracted data (flexible – handle variants/missing; based on common exports like Address, AVM, Equity; add more like 'Mortgage Amount' for financing quests)
       const extracted = {
         address: `${row['Property Address'] || ''}, ${row['City'] || ''}, ${row['State'] || ''} ${row['Zip'] || ''}`.trim(),
         property_type: row['Property Type']?.toLowerCase() || 'other',
@@ -61,7 +79,7 @@ export async function importDataAction(formData: FormData) {
         last_name: row['Owner Last Name'] || null,
         phone: row['Owner Phone 1'] || null, // Logic: Take first phone (expand for multiples in metadata)
         lead_type: row['Lead Type'] || 'owner', // Infer if available
-        metadata: { propstream_row: row }, // Logic: Store full row for audit
+        metadata: { propstream_row: row }, // Logic: Store full row for audit (e.g., add 'Equity %' here if in CSV)
       };
 
       if (!extracted.address) {
@@ -78,13 +96,7 @@ export async function importDataAction(formData: FormData) {
           create: { address_hash: addressHash, ...extracted },
         });
 
-        const cookieStore = cookies();
-        const supabase = createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
-          cookies: {
-            getAll: () => cookieStore.getAll(),
-            setAll: (cookiesToSet) => { try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); } catch {} },
-          },
-        });
+        const supabase = await createSupabaseServerClient(); // Logic: Async client in transaction (safe)
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user.id) {
           throw new Error('No session – login required');
@@ -130,13 +142,7 @@ export async function dialLeadAction(leadId: number) {
       throw new Error('No phone for lead');
     }
 
-    const cookieStore = cookies();
-    const supabase = createServerClient<Database>(supabaseUrl, supabaseAnonKey, {
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (cookiesToSet) => { try { cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); } catch {} },
-      },
-    });
+    const supabase = await createSupabaseServerClient(); // Logic: Async client
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user.id || lead.assigned_to !== session.user.id) {
       throw new Error('Unauthorized or mismatched assignment');
@@ -156,20 +162,3 @@ export async function dialLeadAction(leadId: number) {
       data: {
         leads_id: lead.id,
         caller_id: session.user.id,
-        call_sid: call.sid, // Twilio ID for tracking
-        status: 'initiated',
-        metadata: { address: lead.properties.address },
-      },
-    });
-
-    return { success: true, callId: call.sid };
-  } catch (error) {
-    console.error('Dial error:', error);
-    return { success: false, error: (error as Error).message };
-  }
-}
-
-// Helper: Stubbed extractFromLink (removed for pivot – mock for non-CSV if needed)
-// async function extractFromLink(...) { return { /* mock data */ }; } // Comment out Zillow logic
-
-// ... (keep signInAction, signOutAction)

@@ -1,7 +1,6 @@
 "use client"; // Kept existing: Marks as client component for Framer Motion (browser-only animations)
 
 import { motion } from 'framer-motion'; // Kept existing: Framer Motion for smooth fill animations and level-up effects (install: pnpm add framer-motion; lightweight for transitions)
-import { ComponentProps } from 'react'; // Added: For ComponentProps to infer Tooltip props (fixes 'TooltipProps not found' lint error; better for Shadcn as it doesn't export named props)
 import { Progress } from '@/components/ui/progress'; // Kept existing: Shadcn Progress for bar (kept from layout)
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Kept existing: Shadcn Tooltip for lore placeholders on hover (variant-ready for intent/size/side; provider scopes to bar)
 
@@ -11,7 +10,6 @@ interface ClientXPBarProps {
   progressToNext: number; // Kept existing: From layout calc (0-100)
 }
 
-type TooltipProps = ComponentProps<typeof Tooltip>; // Added: Infer Tooltip props from Shadcn component (fixes lint import/named error; extends for custom props if needed)
 
 export default function ClientXPBar({ currentLevel, progressToNext }: ClientXPBarProps) {
   return (
