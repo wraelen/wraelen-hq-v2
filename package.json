@@ -75,6 +75,7 @@
     "next": "^15.5.4",
     "next-rate-limit": "^0.0.3",
     "node-cron": "^4.2.1",
+    "playwright": "^1.55.1",
     "puppeteer": "24.22.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
