@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///home/wraelen/wraelen/wraelen-internal-boilerplate/.next-internal/server/app/extract/page/actions.js%20%28server%20actions%20loader%29"],"sourcesContent":["export {$$RSC_SERVER_ACTION_0 as '40d92fdaace826a4b14baf5b30cd6ab04e268791d4'} from 'ACTIONS_MODULE0'\n"],"names":[],"mappings":";AAAA","debugId":null}},
+    {"offset": {"line": 24, "column": 0}, "map": {"version":3,"sources":[],"names":[],"mappings":"","debugId":null}}]
+}

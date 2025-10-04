@@ -1,0 +1,35 @@
+{
+  "node": {
+    "40d92fdaace826a4b14baf5b30cd6ab04e268791d4": {
+      "workers": {
+        "app/auth/signup/page": {
+          "moduleId": "[project]/wraelen/wraelen-internal-boilerplate/.next-internal/server/app/auth/signup/page/actions.js { ACTIONS_MODULE0 => \"[project]/wraelen/wraelen-internal-boilerplate/src/app/layout.tsx [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/wraelen/wraelen-internal-boilerplate/src/app/auth/signup/action.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "wraelen/wraelen-internal-boilerplate/src/app/layout.tsx"
+        }
+      },
+      "layer": {
+        "app/auth/signup/page": "rsc"
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "wraelen/wraelen-internal-boilerplate/src/app/layout.tsx"
+    },
+    "4043e5f9f7926f8f1b5fd13aa7f4f13c5c82ddb93a": {
+      "workers": {
+        "app/auth/signup/page": {
+          "moduleId": "[project]/wraelen/wraelen-internal-boilerplate/.next-internal/server/app/auth/signup/page/actions.js { ACTIONS_MODULE0 => \"[project]/wraelen/wraelen-internal-boilerplate/src/app/layout.tsx [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/wraelen/wraelen-internal-boilerplate/src/app/auth/signup/action.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createInitialProfile",
+          "filename": "wraelen/wraelen-internal-boilerplate/src/app/auth/signup/action.ts"
+        }
+      },
+      "layer": {
+        "app/auth/signup/page": "action-browser"
+      },
+      "exportedName": "createInitialProfile",
+      "filename": "wraelen/wraelen-internal-boilerplate/src/app/auth/signup/action.ts"
+    }
+  },
+  "edge": {}
+}
