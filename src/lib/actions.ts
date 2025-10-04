@@ -1,12 +1,12 @@
 // src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart)
 'use server'; // Logic: Marks as server-only (no client bundle bloat – optimizes for internal app with leads/calls)
 import { PrismaClient } from '@prisma/client';  // Your DB client (async-safe in actions)
-import { createSupabaseServerClient } from '@/lib/supabaseServer'; // Use async helper (fixes warnings in actions too)
 import { redirect } from 'next/navigation'; // Server redirect (reliable – no client hacks; best for post-auth flow to dashboard quests)
 import Papa from 'papaparse'; // Logic: CSV parser (handles headers, errors – best for Propstream exports)
 import Twilio from 'twilio'; // Logic: Twilio SDK for outbound calls (inexpensive, reliable integration)
 import { z } from 'zod';  // Validation (type-safe inputs – prevents junk data in DB; no-brainer for prod)
 import crypto from 'crypto';  // Built-in hash (no extra deps – for address_hash dedup)
+import { createSupabaseServerClient } from '@/lib/supabaseServer'; // Use async helper (fixes warnings in actions too)
 import type { Database } from '../types/database.types'; // Types (autocompletes e.g., session.user.id for Prisma sync – now fixed via your gen)
 
 const prisma = new PrismaClient();  // Global instance (efficient in Next.js actions – auto-closes; push back: Cache in lib/prisma.ts for hot reloads if issues)
@@ -162,3 +162,18 @@ export async function dialLeadAction(leadId: number) {
       data: {
         leads_id: lead.id,
         caller_id: session.user.id,
+        call_sid: call.sid, // Twilio ID for tracking
+        status: 'initiated',
+        metadata: { address: lead.properties.address },
+      },
+    });
+
+    return { success: true, callId: call.sid };
+  } catch (error) {
+    console.error('Dial error:', error);
+    return { success: false, error: (error as Error).message };
+  }
+}
+
+// Helper: Stubbed extractFromLink (removed for pivot – mock for non-CSV if needed)
+// async function extractFromLink(...) { return { /* mock data */ }; } // Comment out Zillow logic
