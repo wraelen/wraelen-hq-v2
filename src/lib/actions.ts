@@ -7,7 +7,7 @@ import Twilio from 'twilio'; // Logic: Twilio SDK for outbound calls (inexpensiv
 import { z } from 'zod';  // Validation (type-safe inputs – prevents junk data in DB; no-brainer for prod)
 import crypto from 'crypto';  // Built-in hash (no extra deps – for address_hash dedup)
 import { createSupabaseServerClient } from '@/lib/supabaseServer'; // Use async helper (fixes warnings in actions too)
-import type { Database } from '../types/database.types'; // Types (autocompletes e.g., session.user.id for Prisma sync – now fixed via your gen)
+import type { Database } from '@/types/database.types'; // Types (autocompletes e.g., session.user.id for Prisma sync – now fixed via your gen)
 
 const prisma = new PrismaClient();  // Global instance (efficient in Next.js actions – auto-closes; push back: Cache in lib/prisma.ts for hot reloads if issues)
 
@@ -23,10 +23,27 @@ export async function signInAction(formData: FormData) {
   const password = formData.get('password')?.toString() ?? '';
   // ... (add your validation/error returns here; e.g., zod schema for email/password)
   const supabase = await createSupabaseServerClient(); // Logic: Async client (Next 15 safe)
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data: { session }, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     return { error: error.message };
   }
+
+  // Auto-create profile if none exists (step 3 fix: No-brainer for robustness – ensures every logged-in user has a gamification profile; prevents null errors in dashboard/layout; push back: If using Supabase signup hooks, move there for new users only, but this covers all logins safely)
+  if (session?.user.id) {
+    const existingProfile = await prisma.profile.findUnique({ where: { id: session.user.id } });
+    if (!existingProfile) {
+      await prisma.profile.create({
+        data: {
+          id: session.user.id, // PK matches auth user ID
+          user_id: session.user.id, // 1:1 FK to auth.users
+          role: 'novice', // Default enum (gamify: Start at base level)
+          points: 0,
+          badges: [], // Empty array
+        },
+      });
+    }
+  }
+
   redirect('/dashboard'); // Logic: Post-login to HQ (quests await!)
 }
 
@@ -42,82 +59,91 @@ export async function importDataAction(formData: FormData) {
   const validated = importSchema.safeParse({
     source: formData.get('source')?.toString() ?? 'propstream',
   });
-
   if (!validated.success) {
     return { error: validated.error.format() };
   }
-
   const file = formData.get('file') as File | null; // Logic: Get uploaded CSV (from dropzone/form)
   if (!file) {
     return { error: 'No file uploaded' };
   }
-
   // Parse CSV (papaparse – async, handles large files stream-like)
   const csvText = await file.text();
   const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true, dynamicTyping: true }); // Logic: Headers on (maps to objects), auto-type numbers
   if (parsed.errors.length > 0) {
     return { error: `CSV parse errors: ${parsed.errors.map(e => e.message).join('; ')}` }; // Logic: Early feedback (e.g., malformed rows)
   }
-
   const rows = parsed.data as Record<string, any>[]; // Logic: Typed rows (Propstream columns like 'Property Address', 'AVM', etc.)
+  const supabase = await createSupabaseServerClient(); // Logic: Hoist session fetch outside loop/transaction (efficiency – avoids redundant calls per row; best practice for batch actions)
+  const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (secure server-verified fetch – fixes "insecure getSession" warning; use for auth guards/user.id; push back: For full session tokens, keep getSession() if needed elsewhere, but this suffices for most checks)
+  if (!user?.id) {
+    return { error: 'No session – login required' };
+  }
   const results = await Promise.allSettled(rows.map(async (row, index) => { // Logic: Parallel for speed; settled for per-row errors
     try {
-      // Map Propstream columns to extracted data (flexible – handle variants/missing; based on common exports like Address, AVM, Equity; add more like 'Mortgage Amount' for financing quests)
+      // Map Propstream columns to schema (flexible – handle variants/missing; added equity/mortgage for creative financing—calculate `equity_percent` if not direct)
+      const propertyTypeMap: Record<string, PropertyType> = { // Logic: Dict for safe enum mapping (pushback: Better than lowercase assume – handles variants)
+        'single family': 'single_family',
+        'multi family': 'multi_family',
+        'condo': 'condo',
+        'townhouse': 'townhouse',
+        'land': 'land',
+        'commercial': 'commercial',
+        // Add more mappings as needed; default 'other'
+      };
       const extracted = {
-        address: `${row['Property Address'] || ''}, ${row['City'] || ''}, ${row['State'] || ''} ${row['Zip'] || ''}`.trim(),
-        property_type: row['Property Type']?.toLowerCase() || 'other',
+        address: row['Property Address']?.trim() || null,
+        city: row['City']?.trim() || null,
+        state: row['State']?.toUpperCase() || null, // Logic: Standardize to 2-letter
+        zip_code: row['Zip']?.trim() || null,
+        property_type: propertyTypeMap[row['Property Type']?.toLowerCase() || ''] || 'other',
         bedrooms: Number(row['Bedrooms']) || null,
         bathrooms: Number(row['Bathrooms']) || null,
-        square_feet: Number(row['Square Feet']) || null,
-        lot_size: Number(row['Lot Size']) || null,
+        square_feet: Number(row['Sq Ft']) || null, // Logic: Common variant 'Sq Ft' over 'Square Feet'
+        lot_size: Number(row['Lot Sq Ft']) || null,
         year_built: Number(row['Year Built']) || null,
         avm: Number(row['AVM']) || null,
         tax_assessed_value: Number(row['Tax Assessed Value']) || null,
-        distress_signals: { pre_foreclosure: row['Pre-Foreclosure'] === 'Y' || false }, // Logic: Map booleans/JSONB
+        distress_signals: { // Logic: Expand for more signals if in CSV (e.g., 'High Equity')
+          pre_foreclosure: row['Pre-Foreclosure'] === 'Y' || false,
+        },
         owner_occupied: row['Owner Occupied'] === 'Y' || null,
-        first_name: row['Owner First Name'] || null,
-        last_name: row['Owner Last Name'] || null,
-        phone: row['Owner Phone 1'] || null, // Logic: Take first phone (expand for multiples in metadata)
-        lead_type: row['Lead Type'] || 'owner', // Infer if available
-        metadata: { propstream_row: row }, // Logic: Store full row for audit (e.g., add 'Equity %' here if in CSV)
+        metadata: { // Logic: Store extras like equity/mortgage for creative financing quests
+          equity_percent: Number(row['Equity %']) || null,
+          mortgage_balance: Number(row['Mortgage Balance']) || null,
+          propstream_row: row, // Full audit
+        },
       };
 
-      if (!extracted.address) {
-        throw new Error(`Invalid address in row ${index + 1} – skipping`);
+      if (!extracted.address || !extracted.city || !extracted.state || !extracted.zip_code) {
+        throw new Error(`Invalid address components in row ${index + 1} – skipping`);
       }
 
-      const addressHash = crypto.createHash('sha256').update(extracted.address.toLowerCase()).digest('hex');
+      const addressHash = crypto.createHash('sha256').update(`${extracted.address.toLowerCase()}${extracted.city.toLowerCase()}${extracted.state.toLowerCase()}${extracted.zip_code}`).digest('hex'); // Logic: Hash full components for better dedup
 
       // Transaction: Upsert property + create lead + increment points (atomic – best for gamification integrity)
       const [property, lead] = await prisma.$transaction(async (tx) => {
         const prop = await tx.properties.upsert({
           where: { address_hash: addressHash },
-          update: { ...extracted, metadata: { ...extracted.metadata, updated_at: new Date() } }, // Logic: Partial update (merge)
+          update: { ...extracted, updated_at: new Date() }, // Logic: Partial update (merge); force timestamp
           create: { address_hash: addressHash, ...extracted },
         });
-
-        const supabase = await createSupabaseServerClient(); // Logic: Async client in transaction (safe)
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user.id) {
-          throw new Error('No session – login required');
-        }
 
         const ld = await tx.leads.create({
           data: {
             properties_id: prop.id,
-            lead_type: extracted.lead_type,
-            first_name: extracted.first_name,
-            last_name: extracted.last_name,
-            phone: extracted.phone,
-            source: 'propstream',
+            lead_type: row['Lead Type']?.toLowerCase() as LeadType || 'owner', // Logic: Map to enum
+            first_name: row['Owner First Name'] || null,
+            last_name: row['Owner Last Name'] || null,
+            phone: row['Phone 1'] || null, // Logic: 'Phone 1' common; expand for multiples
+            source: 'propstream_import' as LeadSource,
             metadata: extracted.metadata,
-            assigned_to: session.user.id,
+            assigned_to: user.id, // Logic: Use user.id from getUser() (secure)
             points_earned: 1, // Logic: Per-lead base (gamify: bonus for batch size later)
           },
         });
 
-        await tx.profiles.update({
-          where: { id: session.user.id },
+        await tx.profile.update({
+          where: { id: user.id }, // Logic: Secure id from getUser()
           data: { points: { increment: 1 } }, // Logic: Accumulate (tie to quests, e.g., if rows.length >50, extra badge)
         });
 
@@ -126,16 +152,35 @@ export async function importDataAction(formData: FormData) {
 
       return { row: index + 1, leadId: lead.id, success: true };
     } catch (error) {
-      console.error(`Import error for row ${index + 1}:`, error);
+      console.error(`Import error for row ${index + 1}:`, error); // Logic: Server log for debug (client gets summary)
       return { row: index + 1, success: false, error: (error as Error).message };
     }
   }));
 
-  return { results: results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: (r.reason as Error).message }) }; // Logic: Flatten for client (e.g., success count)
+  const importResults = results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: (r.reason as Error).message }); // Logic: Flatten for client (e.g., success count)
+
+  // Gamification Trigger: Batch-based quest (e.g., if >50 successful imports, complete a "Bulk Import" quest – assume quest ID 'bulk-import-quest-id' exists; seed if not)
+  const successfulImports = importResults.filter(r => r.success).length;
+  if (successfulImports > 50) {
+    await prisma.quest_completions.create({
+      data: {
+        quest_id: 'bulk-import-quest-id', // Logic: Replace with real ID (create quest: title="Bulk Import 50+ Leads", points=100, criteria={min_imports:50})
+        profile_id: user.id, // Logic: Secure id
+        evidence: { total_imports: successfulImports, points_awarded: 100 },
+      },
+    });
+    // Pushback: Also update profile badges here if quest unlocks one (e.g., push 'Bulk Importer' to badges array)
+    await prisma.profile.update({
+      where: { id: user.id },
+      data: { badges: { push: 'Bulk Importer' }, points: { increment: 100 } },
+    });
+  }
+
+  return { results: importResults };
 }
 
 // Action: Dial lead (logic: Twilio outbound call – from your Twilio number to lead phone; logs to calls table)
-export async function dialLeadAction(leadId: number) {
+export async function dialLeadAction(leadId: string) { // Logic: String for UUID (matches schema)
   try {
     const lead = await prisma.leads.findUnique({ where: { id: leadId }, include: { properties: true } });
     if (!lead?.phone) {
@@ -143,8 +188,8 @@ export async function dialLeadAction(leadId: number) {
     }
 
     const supabase = await createSupabaseServerClient(); // Logic: Async client
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user.id || lead.assigned_to !== session.user.id) {
+    const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (fixes warning)
+    if (!user?.id || lead.assigned_to !== user.id) {
       throw new Error('Unauthorized or mismatched assignment');
     }
 
@@ -161,7 +206,7 @@ export async function dialLeadAction(leadId: number) {
     await prisma.calls.create({
       data: {
         leads_id: lead.id,
-        caller_id: session.user.id,
+        caller_id: user.id, // Logic: Secure id
         call_sid: call.sid, // Twilio ID for tracking
         status: 'initiated',
         metadata: { address: lead.properties.address },

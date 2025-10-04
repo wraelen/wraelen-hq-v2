@@ -1,3 +1,4 @@
+// src/app/extract/page.tsx (assuming this is your import page; update similarly if different)
 'use client'; // Logic: Client for interactivity (dropzone, form state)
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useState } from 'react';

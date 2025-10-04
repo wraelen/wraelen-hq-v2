@@ -21,14 +21,15 @@ export async function createSupabaseServerClient() {
           try {
             cookieStore.set({ name, value, ...options }); // Logic: No await needed (set is sync)
           } catch (error) {
-            console.error('Cookie set error:', error); // Handle silently (best for prod resilience)
+            // The `set` method was called from a Server Action. Ignore – middleware will refresh session on next request.
+            // Logic: No logging here (expected noise in Next.js 15+ with Supabase SSR during token refresh attempts; the try-catch safely ignores it per docs – unblocks cleanly without clutter; push back: If debugging needed, add console.warn only in dev via process.env.NODE_ENV)
           }
         },
         remove(name: string, options: any) {
           try {
             cookieStore.set({ name, value: '', ...options }); // Logic: Remove via empty set
           } catch (error) {
-            console.error('Cookie remove error:', error);
+            // Ignored as above
           }
         },
       },
