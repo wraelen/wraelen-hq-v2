@@ -15,7 +15,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   let role = 'guest';
   let xp = 0;
   if (session?.user.id) {
-    const profile = await prisma.profiles.findUnique({ where: { id: session.user.id } }); // Logic: profiles (match schema; assumes generate ran)
+    const profile = await prisma.profile.findUnique({ where: { id: session.user.id } }); // Logic: profiles (match schema; assumes generate ran)
     role = profile?.role || 'rep';
     xp = profile?.points || 0;
   }
