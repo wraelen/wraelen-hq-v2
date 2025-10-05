@@ -323,12 +323,11 @@ async function importDataAction(formData) {
                     foreclosure: row['Foreclosure Factor']
                 } : null,
                 notes: row['Marketing Lists'] || null,
-                metadata: {
-                    equity: Number(row['Est. Equity']) || null,
-                    remaining_balance: Number(row['Est. Remaining balance of Open Loans']) || null,
-                    loan_to_value: Number(row['Est. Loan-to-Value']) || null,
-                    open_loans: Number(row['Total Open Loans']) || null
-                }
+                equity: Number(row['Est. Equity']) || null,
+                remaining_balance: Number(row['Est. Remaining balance of Open Loans']) || null,
+                loan_to_value: Number(row['Est. Loan-to-Value']) || null,
+                open_loans: Number(row['Total Open Loans']) || null,
+                metadata: {}
             };
             // Upsert property (dedup on hash – merge data)
             const property = await prisma.properties.upsert({

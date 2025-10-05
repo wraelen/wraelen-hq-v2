@@ -105,11 +105,11 @@ export async function importDataAction(formData: FormData) {
         owner_occupied: row['Owner Occupied']?.toLowerCase() === 'yes' ? true : (row['Owner Occupied']?.toLowerCase() === 'no' ? false : null), // Boolean map from string
         distress_signals: row['Foreclosure Factor'] ? { foreclosure: row['Foreclosure Factor'] } : null, // Json: Basic distress (expand with more CSV fields if available)
         notes: row['Marketing Lists'] || null, // Now string (e.g., '1' instead of 1 – fixes validation error)
+        equity: Number(row['Est. Equity']) || null, // Matches 'Est. Equity' in CSV
+        remaining_balance: Number(row['Est. Remaining balance of Open Loans']) || null, // Matches CSV
+        loan_to_value: Number(row['Est. Loan-to-Value']) || null, // Matches CSV
+        open_loans: Number(row['Total Open Loans']) || null, // Matches CSV
         metadata: { // Json: Extras for creative financing (add more if CSV has them; e.g., if 'Equity' column exists, parse here)
-          equity: Number(row['Est. Equity']) || null, // Matches 'Est. Equity' in CSV
-          remaining_balance: Number(row['Est. Remaining balance of Open Loans']) || null, // Matches CSV
-          loan_to_value: Number(row['Est. Loan-to-Value']) || null, // Matches CSV
-          open_loans: Number(row['Total Open Loans']) || null, // Matches CSV
         },
       };
 

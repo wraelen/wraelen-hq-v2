@@ -80,7 +80,6 @@ enum QuestType {
 
 // Core Table 1: Properties (extracted details from links; merged via upsert on address_hash)
 model properties {
-  id                   String       @id @default(uuid()) @db.Uuid  // PK: Auto UUID
   address              String                                    // Required: Full address
   city                 String                                    // Required: City
   state                String                                    // Required: 2-letter code
@@ -89,12 +88,12 @@ model properties {
   bedrooms             Int?                                      // Optional: Beds
   bathrooms            Float?                                    // Optional: Baths (float for halves)
   square_feet          Int?                                      // Optional: Sq ft
-  lot_size             Float?                                    // Optional: Lot size
   year_built           Int?                                      // Optional: Build year
-  zestimate            Float?                                    // Optional: Zillow value
   avm                  Float?                                    // Optional: Propstream value
-  market_value         Float?                                    // Optional: Internal appraisal
-  tax_assessed_value   Float?                                    // Optional: Tax value
+  equity               Float?                                    // Optional: Internal appraisal
+  remaining_balance    Float?                                    // Optional: Internal appraisal
+  loan_to_value        Float?                                    // Optional: Internal appraisal
+  open_loans           Int?                                      // Optional: Internal appraisal
   distress_signals     Json?                                     // Jsonb: { pre_foreclosure: true, ... }
   owner_occupied       Boolean?                                  // Optional: Owner lives there?
   notes                String?                                   // Optional: Freeform notes
@@ -102,7 +101,8 @@ model properties {
   metadata             Json?                                     // Jsonb: Extras like equity/mortgage for creative financing
   created_at           DateTime     @default(now())
   updated_at           DateTime     @updatedAt
-
+  id                   String       @id @default(uuid()) @db.Uuid  // PK: Auto UUID
+  
   leads                leads[]                                   // One-to-many: Properties to leads
 
   @@index([address_hash])  // For fast upserts/merges
