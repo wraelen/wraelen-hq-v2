@@ -1,101 +1,89 @@
-import bcrypt from 'bcryptjs'; // Kept existing: Now used for hashing seeded passwords (aligns with auth/register for consistency; fixes unused warning)
-import prisma from '../lib/prisma.ts'; // Kept existing: Relative import with extension for ts-node resolution
+// prisma/seed.ts – Seed script for initial data (quests/badges; best practice: Run with `npx prisma db seed` – populates for gamification testing; pushback: Idempotent upserts to avoid duplicates on re-run; expand with more examples as game mechanics evolve)
+// Logic: Creates sample quests (daily/weekly/one-time) with criteria JSON for programmatic completion checks (e.g., in edge funcs on imports/calls); badges with requirements for unlocks. Assumes schema pushed; add to package.json: "prisma": { "seed": "ts-node prisma/seed.ts" }
+import { PrismaClient, QuestType, UserRole } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 async function main() {
-  // Hash passwords (vary for each to simulate real users)—updated to use bcrypt for secure seeded data (matches auth system; fixes unused bcrypt warning)
-  const novicePass = await bcrypt.hash('novicepass', 10); // Added: Use bcrypt to hash (secure, same as register/login)
-  const elitePass = await bcrypt.hash('elitepass', 10); // Added: Use bcrypt to hash
-  const adminPass = await bcrypt.hash('adminpass', 10); // Added: Use bcrypt to hash
-
-  // Sample users: Reps at different "game levels" for leaderboard/quest testing
-  await prisma.user.upsert({
-    where: { username: 'novice_rep' },
+  // Seed Quests (upserts on title for idempotency – no duplicates)
+  await prisma.quest.upsert({
+    where: { title: 'Import 50 Leads' },
     update: {},
     create: {
-      username: 'novice_rep',
-      password: novicePass, // Updated: Use hashed password
-      role: 'NOVICE',
+      title: 'Import 50 Leads',
+      description: 'Upload and process a Propstream CSV with at least 50 valid leads to earn points and level up.',
+      type: QuestType.one_time,
+      points: 100,
+      criteria: { min_imports: 50, source: 'propstream' }, // JSON: Checked in completion logic (e.g., count leads with source)
+      active: true,
+    },
+  });
+
+  await prisma.quest.upsert({
+    where: { title: 'Daily Dialer Challenge' },
+    update: {},
+    create: {
+      title: 'Daily Dialer Challenge',
+      description: 'Make 20 outbound calls in a day to qualify for daily rewards.',
+      type: QuestType.daily,
       points: 50,
-      badges: ['Lead Scout'], // Earned from basic quests
-      email: 'novice@wraelen.com',
+      criteria: { min_calls: 20, direction: 'outbound', period: 'day' },
+      active: true,
     },
   });
 
-  await prisma.user.upsert({
-    where: { username: 'elite_rep' },
+  await prisma.quest.upsert({
+    where: { title: 'Weekly Lead Nurture' },
     update: {},
     create: {
-      username: 'elite_rep',
-      password: elitePass, // Updated: Use hashed password
-      role: 'ELITE',
-      points: 500,
-      badges: ['Deal Closer', 'Quest Master'], // Advanced achievements
-      email: 'elite@wraelen.com',
+      title: 'Weekly Lead Nurture',
+      description: 'Follow up on 100 leads this week (status to follow_up) for bonus points.',
+      type: QuestType.weekly,
+      points: 200,
+      criteria: { min_follow_ups: 100, period: 'week' },
+      active: true,
     },
   });
 
-  await prisma.user.upsert({
-    where: { username: 'admin_rep' },
+  // Seed Badges (upserts on name)
+  await prisma.badges.upsert({
+    where: { name: 'Lead Importer' },
     update: {},
     create: {
-      username: 'admin_rep',
-      password: adminPass, // Updated: Use hashed password
-      role: 'ADMIN',
-      points: 1000,
-      badges: ['Company Founder'],
-      email: 'admin@wraelen.com',
+      name: 'Lead Importer',
+      description: 'Awarded for importing over 100 leads in total.',
+      icon_url: '/badges/lead-importer.png', // Placeholder; upload assets to public/
+      requirements: { total_imports: 100 },
     },
   });
 
-  // Fetch created users for relations (with null checks)
-  const novice = await prisma.user.findUnique({ where: { username: 'novice_rep' } });
-  const elite = await prisma.user.findUnique({ where: { username: 'elite_rep' } });
-
-  if (!novice || !elite) {
-    throw new Error('Failed to find seeded users—check createMany');
-  }
-
-  // Sample leads: Tied to reps, with scores for gamified bonuses (e.g., high-value = more XP)
-  await prisma.lead.createMany({
-    data: [
-      {
-        userId: novice.id,
-        address: '123 Test St, San Francisco, CA',
-        price: '300,000',
-        beds: '3',
-        baths: '2',
-        sqFt: '1500',
-        type: 'Single Family',
-        daysOnMarket: '15',
-        realtorName: 'Jane Doe',
-        realtorPhone: '555-1234',
-        photo: 'https://example.com/photo.jpg',
-        url: 'https://zillow.com/lead/123',
-        score: 20, // Low score = basic bonus
-      },
-      {
-        userId: elite.id,
-        address: '456 Elite Ave, Los Angeles, CA',
-        price: '1,200,000',
-        beds: '5',
-        baths: '4',
-        sqFt: '3000',
-        type: 'Single Family',
-        daysOnMarket: '5',
-        realtorName: 'John Elite',
-        realtorPhone: '555-5678',
-        photo: 'https://example.com/photo2.jpg',
-        url: 'https://zillow.com/lead/456',
-        score: 80, // High score = elite bonus/points multiplier
-      },
-    ],
+  await prisma.badges.upsert({
+    where: { name: 'Dialer Pro' },
+    update: {},
+    create: {
+      name: 'Dialer Pro',
+      description: 'For making 500 successful calls (connected outcome).',
+      icon_url: '/badges/dialer-pro.png',
+      requirements: { total_connected_calls: 500 },
+    },
   });
 
-  console.log('Seeding complete: Users and leads added for gamification testing.');
+  await prisma.badges.upsert({
+    where: { name: 'Creative Closer' },
+    update: {},
+    create: {
+      name: 'Creative Closer',
+      description: 'Close 10 deals with creative financing (seller financing focus).',
+      icon_url: '/badges/creative-closer.png',
+      requirements: { closed_deals: 10, type: 'creative' },
+    },
+  });
+
+  console.log('Seed complete: Quests and badges added/updated.');
 }
 
 main()
-  .catch((e) => {
+  .catch(e => {
     console.error(e);
     process.exit(1);
   })

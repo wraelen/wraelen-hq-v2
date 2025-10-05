@@ -191,7 +191,7 @@ async function createSupabaseServerClient() {
 "[project]/src/lib/actions.ts [app-rsc] (ecmascript)", ((__turbopack_context__) => {
 "use strict";
 
-// src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart)
+// src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart; fixed notes type by disabling dynamicTyping and explicit conversions – best practice: Treat CSV as strings to avoid surprises, manually Number() numerics for safety/scalability in imports/quests)
 /* __next_internal_action_entry_do_not_use__ [{"00315b03f56c36afe12dfeb5c652abd33bef4e3415":"signOutAction","40466bc412b189907900eb342e636f8842c72e0114":"pollImportStatus","406fe66154764a470bd2e6892cbf6564e8ba792062":"importDataAction","4079d682f668d9e609513a443751f3f25df63679e8":"dialLeadAction","40c51dafa413642fae5ba42f7a583d85c55e72290c":"signInAction","40de287e4a19bf59e275536cc07c5d930ec2748f64":"enrichLeadRealtor"},"",""] */ __turbopack_context__.s([
     "dialLeadAction",
     ()=>dialLeadAction,
@@ -270,8 +270,8 @@ async function importDataAction(formData) {
     const parsed = __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$papaparse$40$5$2e$5$2e$3$2f$node_modules$2f$papaparse$2f$papaparse$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["default"].parse(csvText, {
         header: true,
         skipEmptyLines: true,
-        dynamicTyping: true
-    }); // Logic: Headers on (maps to objects), auto-type numbers
+        dynamicTyping: false
+    }); // Fix: Disable dynamicTyping (all fields as strings – avoids number surprises like notes:1 as Int; explicit Number() below for numerics)
     if (parsed.errors.length > 0) {
         return {
             error: `CSV parse errors: ${parsed.errors.map((e)=>e.message).join('; ')}`
@@ -294,98 +294,109 @@ async function importDataAction(formData) {
                 'condo': 'condo',
                 'townhouse': 'townhouse',
                 'land': 'land',
-                'commercial': 'commercial'
+                'commercial': 'commercial',
+                'duplex (2 units, any combination)': 'multi_family'
             };
-            const extracted = {
-                address: row['Property Address']?.trim() || null,
-                city: row['City']?.trim() || null,
-                state: row['State']?.toUpperCase() || null,
-                zip_code: row['Zip']?.trim() || null,
+            const address = row['Address']?.trim() || null; // Logic: Trim (now strings)
+            const city = row['City']?.trim() || null;
+            const state = row['State']?.toUpperCase() || null; // Standardize to uppercase (e.g., 'FL' → 'FL')
+            const zip_code = row['Zip']?.trim() || null; // Keep as string for leading zeros
+            if (!address || !city || !state || !zip_code) {
+                throw new Error('Missing required address fields');
+            }
+            const address_hash = __TURBOPACK__imported__module__$5b$externals$5d2f$crypto__$5b$external$5d$__$28$crypto$2c$__cjs$29$__["default"].createHash('sha256').update(`${address}${city}${state}${zip_code}`.toLowerCase()).digest('hex'); // Logic: Normalized hash for dedup (lowercase for consistency)
+            const propertyData = {
+                address,
+                city,
+                state,
+                zip_code,
                 property_type: propertyTypeMap[row['Property Type']?.toLowerCase() || ''] || 'other',
                 bedrooms: Number(row['Bedrooms']) || null,
-                bathrooms: Number(row['Bathrooms']) || null,
-                square_feet: Number(row['Sq Ft']) || null,
-                lot_size: Number(row['Lot Sq Ft']) || null,
-                year_built: Number(row['Year Built']) || null,
-                avm: Number(row['AVM']) || null,
-                tax_assessed_value: Number(row['Tax Assessed Value']) || null,
-                distress_signals: {
-                    pre_foreclosure: row['Pre-Foreclosure'] === 'Y' || false
-                },
-                owner_occupied: row['Owner Occupied'] === 'Y' || null,
+                bathrooms: Number(row['Total Bathrooms']) || null,
+                square_feet: Number(row['Building Sqft']) || null,
+                lot_size: Number(row['Lot Size Sqft']) || null,
+                year_built: Number(row['Effective Year Built']) || null,
+                avm: Number(row['Est. Value']) || null,
+                tax_assessed_value: Number(row['Total Assessed Value']) || null,
+                owner_occupied: row['Owner Occupied']?.toLowerCase() === 'yes' ? true : row['Owner Occupied']?.toLowerCase() === 'no' ? false : null,
+                distress_signals: row['Foreclosure Factor'] ? {
+                    foreclosure: row['Foreclosure Factor']
+                } : null,
+                notes: row['Marketing Lists'] || null,
                 metadata: {
-                    equity_percent: Number(row['Equity %']) || null,
-                    mortgage_balance: Number(row['Mortgage Balance']) || null,
-                    propstream_row: row
+                    equity: Number(row['Est. Equity']) || null,
+                    remaining_balance: Number(row['Est. Remaining balance of Open Loans']) || null,
+                    loan_to_value: Number(row['Est. Loan-to-Value']) || null,
+                    open_loans: Number(row['Total Open Loans']) || null
                 }
             };
-            if (!extracted.address || !extracted.city || !extracted.state || !extracted.zip_code) {
-                throw new Error(`Invalid address components in row ${index + 1} – skipping`);
-            }
-            const addressHash = __TURBOPACK__imported__module__$5b$externals$5d2f$crypto__$5b$external$5d$__$28$crypto$2c$__cjs$29$__["default"].createHash('sha256').update(`${extracted.address.toLowerCase()}${extracted.city.toLowerCase()}${extracted.state.toLowerCase()}${extracted.zip_code}`).digest('hex'); // Logic: Hash full components for better dedup
-            // Transaction: Upsert property + create lead + increment points (atomic – best for gamification integrity)
-            const [property, lead] = await prisma.$transaction(async (tx)=>{
-                const prop = await tx.properties.upsert({
-                    where: {
-                        address_hash: addressHash
-                    },
-                    update: {
-                        ...extracted,
-                        updated_at: new Date()
-                    },
-                    create: {
-                        address_hash: addressHash,
-                        ...extracted
-                    }
-                });
-                const ld = await tx.leads.create({
-                    data: {
-                        properties_id: prop.id,
-                        lead_type: row['Lead Type']?.toLowerCase() || 'owner',
-                        first_name: row['Owner First Name'] || null,
-                        last_name: row['Owner Last Name'] || null,
-                        phone: row['Phone 1'] || null,
-                        source: 'propstream_import',
-                        metadata: extracted.metadata,
-                        assigned_to: session.user.id,
-                        points_earned: 1
-                    }
-                });
-                await tx.profile.update({
-                    where: {
-                        id: session.user.id
-                    },
-                    data: {
-                        points: {
-                            increment: 1
-                        }
-                    }
-                });
-                return [
-                    prop,
-                    ld
-                ];
+            // Upsert property (dedup on hash – merge data)
+            const property = await prisma.properties.upsert({
+                where: {
+                    address_hash
+                },
+                update: propertyData,
+                create: {
+                    ...propertyData,
+                    address_hash
+                }
+            });
+            // Parse owner names (split first/last if combined; for owner leads)
+            const owner1First = row['Owner 1 First Name']?.trim() || null;
+            const owner1Last = row['Owner 1 Last Name']?.trim() || null;
+            const phone = row['Owner 1 Phone']?.trim() || null; // Assuming CSV has phone; add if present
+            const email = row['Owner 1 Email']?.trim() || null; // Add if CSV has email
+            const leadData = {
+                properties_id: property.id,
+                lead_type: 'owner',
+                first_name: owner1First,
+                last_name: owner1Last,
+                phone,
+                email,
+                status: 'new',
+                source: 'propstream_import',
+                assigned_to: session.user.id,
+                points_earned: 1,
+                notes: row['Notes'] || null,
+                metadata: {
+                    imported_at: new Date(),
+                    county: row['County'] || null
+                }
+            };
+            // Create lead (no unique – allow multiples per property if needed; pushback: Add unique constraint if 1:1 desired)
+            const lead = await prisma.leads.create({
+                data: leadData
             });
             return {
+                success: true,
                 row: index + 1,
-                leadId: lead.id,
-                success: true
-            };
+                leadId: lead.id
+            }; // For results list
         } catch (error) {
             console.error(`Import error for row ${index + 1}:`, error);
             return {
-                row: index + 1,
                 success: false,
+                row: index + 1,
                 error: error.message
             };
         }
     }));
+    // Filter fulfilled/rejected for summary (UX: Show counts in results)
+    const successful = results.filter((r)=>r.status === 'fulfilled' && r.value.success).length;
+    const failed = results.length - successful;
+    if (failed === results.length) {
+        return {
+            error: 'All rows failed – check CSV format/console logs'
+        };
+    }
     return {
-        results: results.map((r)=>r.status === 'fulfilled' ? r.value : {
-                success: false,
-                error: r.reason.message
-            })
-    }; // Logic: Flatten for client (e.g., success count)
+        success: true,
+        results,
+        summary: {
+            successful,
+            failed
+        }
+    }; // Logic: Return array for display (no jobId yet; pushback: For long-running, add Upstash/edge func + return jobId for poll)
 }
 async function pollImportStatus(jobId) {
     // Stub logic: Simulate progress (e.g., from memory or DB; here, random increment for testing)

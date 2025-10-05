@@ -1,4 +1,4 @@
-// src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart)
+// src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart; fixed notes type by disabling dynamicTyping and explicit conversions – best practice: Treat CSV as strings to avoid surprises, manually Number() numerics for safety/scalability in imports/quests)
 'use server'; // Logic: Marks as server-only (no client bundle bloat – optimizes for internal app with leads/calls)
 import { LeadSource, LeadType, PrismaClient, PropertyType } from '@prisma/client';  // Your DB client (async-safe in actions)
 import { redirect } from 'next/navigation'; // Server redirect (reliable – no client hacks; best for post-auth flow to dashboard quests)
@@ -53,7 +53,7 @@ export async function importDataAction(formData: FormData) {
 
   // Parse CSV (papaparse – async, handles large files stream-like)
   const csvText = await file.text();
-  const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true, dynamicTyping: true }); // Logic: Headers on (maps to objects), auto-type numbers
+  const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true, dynamicTyping: false }); // Fix: Disable dynamicTyping (all fields as strings – avoids number surprises like notes:1 as Int; explicit Number() below for numerics)
   if (parsed.errors.length > 0) {
     return { error: `CSV parse errors: ${parsed.errors.map(e => e.message).join('; ')}` }; // Logic: Early feedback (e.g., malformed rows)
   }
@@ -75,79 +75,94 @@ export async function importDataAction(formData: FormData) {
         'townhouse': 'townhouse',
         'land': 'land',
         'commercial': 'commercial',
-        // Add more mappings as needed; default 'other'
-      };
-      const extracted = {
-        address: row['Property Address']?.trim() || null,
-        city: row['City']?.trim() || null,
-        state: row['State']?.toUpperCase() || null, // Logic: Standardize to 2-letter
-        zip_code: row['Zip']?.trim() || null,
-        property_type: propertyTypeMap[row['Property Type']?.toLowerCase() || ''] || 'other',
-        bedrooms: Number(row['Bedrooms']) || null,
-        bathrooms: Number(row['Bathrooms']) || null,
-        square_feet: Number(row['Sq Ft']) || null, // Logic: Common variant 'Sq Ft' over 'Square Feet'
-        lot_size: Number(row['Lot Sq Ft']) || null,
-        year_built: Number(row['Year Built']) || null,
-        avm: Number(row['AVM']) || null,
-        tax_assessed_value: Number(row['Tax Assessed Value']) || null,
-        distress_signals: { // Logic: Expand for more signals if in CSV (e.g., 'High Equity')
-          pre_foreclosure: row['Pre-Foreclosure'] === 'Y' || false,
-        },
-        owner_occupied: row['Owner Occupied'] === 'Y' || null,
-        metadata: { // Logic: Store extras like equity/mortgage for creative financing quests
-          equity_percent: Number(row['Equity %']) || null,
-          mortgage_balance: Number(row['Mortgage Balance']) || null,
-          propstream_row: row, // Full audit
-        },
+        'duplex (2 units, any combination)': 'multi_family', // Added: Matches your sample CSV value (normalize to enum; pushback: If more variants, expand or use AI fuzzy match later)
+        // Add more mappings as needed; default to 'other' below
       };
 
-      if (!extracted.address || !extracted.city || !extracted.state || !extracted.zip_code) {
-        throw new Error(`Invalid address components in row ${index + 1} – skipping`);
+      const address = row['Address']?.trim() || null; // Logic: Trim (now strings)
+      const city = row['City']?.trim() || null;
+      const state = row['State']?.toUpperCase() || null; // Standardize to uppercase (e.g., 'FL' → 'FL')
+      const zip_code = row['Zip']?.trim() || null; // Keep as string for leading zeros
+      if (!address || !city || !state || !zip_code) {
+        throw new Error('Missing required address fields');
       }
 
-      const addressHash = crypto.createHash('sha256').update(`${extracted.address.toLowerCase()}${extracted.city.toLowerCase()}${extracted.state.toLowerCase()}${extracted.zip_code}`).digest('hex'); // Logic: Hash full components for better dedup
+      const address_hash = crypto.createHash('sha256').update(`${address}${city}${state}${zip_code}`.toLowerCase()).digest('hex'); // Logic: Normalized hash for dedup (lowercase for consistency)
 
-      // Transaction: Upsert property + create lead + increment points (atomic – best for gamification integrity)
-      const [property, lead] = await prisma.$transaction(async (tx) => {
-        const prop = await tx.properties.upsert({
-          where: { address_hash: addressHash },
-          update: { ...extracted, updated_at: new Date() }, // Logic: Partial update (merge); force timestamp
-          create: { address_hash: addressHash, ...extracted },
-        });
+      const propertyData = {
+        address,
+        city,
+        state,
+        zip_code,
+        property_type: propertyTypeMap[row['Property Type']?.toLowerCase() || ''] || 'other' as PropertyType,
+        bedrooms: Number(row['Bedrooms']) || null, // Explicit Number (NaN → null)
+        bathrooms: Number(row['Total Bathrooms']) || null, // Matches CSV header 'Total Bathrooms'
+        square_feet: Number(row['Building Sqft']) || null,
+        lot_size: Number(row['Lot Size Sqft']) || null,
+        year_built: Number(row['Effective Year Built']) || null,
+        avm: Number(row['Est. Value']) || null, // Matches 'Est. Value' for AVM
+        tax_assessed_value: Number(row['Total Assessed Value']) || null,
+        owner_occupied: row['Owner Occupied']?.toLowerCase() === 'yes' ? true : (row['Owner Occupied']?.toLowerCase() === 'no' ? false : null), // Boolean map from string
+        distress_signals: row['Foreclosure Factor'] ? { foreclosure: row['Foreclosure Factor'] } : null, // Json: Basic distress (expand with more CSV fields if available)
+        notes: row['Marketing Lists'] || null, // Now string (e.g., '1' instead of 1 – fixes validation error)
+        metadata: { // Json: Extras for creative financing (add more if CSV has them; e.g., if 'Equity' column exists, parse here)
+          equity: Number(row['Est. Equity']) || null, // Matches 'Est. Equity' in CSV
+          remaining_balance: Number(row['Est. Remaining balance of Open Loans']) || null, // Matches CSV
+          loan_to_value: Number(row['Est. Loan-to-Value']) || null, // Matches CSV
+          open_loans: Number(row['Total Open Loans']) || null, // Matches CSV
+        },
+      };
 
-        const ld = await tx.leads.create({
-          data: {
-            properties_id: prop.id,
-            lead_type: row['Lead Type']?.toLowerCase() as LeadType || 'owner', // Logic: Map to enum
-            first_name: row['Owner First Name'] || null,
-            last_name: row['Owner Last Name'] || null,
-            phone: row['Phone 1'] || null, // Logic: 'Phone 1' common; expand for multiples
-            source: 'propstream_import' as LeadSource,
-            metadata: extracted.metadata,
-            assigned_to: session.user.id,
-            points_earned: 1, // Logic: Per-lead base (gamify: bonus for batch size later)
-          },
-        });
-
-        await tx.profile.update({
-          where: { id: session.user.id },
-          data: { points: { increment: 1 } }, // Logic: Accumulate (tie to quests, e.g., if rows.length >50, extra badge)
-        });
-
-        return [prop, ld];
+      // Upsert property (dedup on hash – merge data)
+      const property = await prisma.properties.upsert({
+        where: { address_hash },
+        update: propertyData,
+        create: { ...propertyData, address_hash },
       });
 
-      return { row: index + 1, leadId: lead.id, success: true };
+      // Parse owner names (split first/last if combined; for owner leads)
+      const owner1First = row['Owner 1 First Name']?.trim() || null;
+      const owner1Last = row['Owner 1 Last Name']?.trim() || null;
+      const phone = row['Owner 1 Phone']?.trim() || null; // Assuming CSV has phone; add if present
+      const email = row['Owner 1 Email']?.trim() || null; // Add if CSV has email
+
+      const leadData = {
+        properties_id: property.id,
+        lead_type: 'owner' as LeadType, // Default to owner for Propstream (realtor enrich separate)
+        first_name: owner1First,
+        last_name: owner1Last,
+        phone,
+        email,
+        status: 'new' as const, // Default new
+        source: 'propstream_import' as LeadSource,
+        assigned_to: session.user.id, // Assign to importer (gamification: Their quest points)
+        points_earned: 1, // Per-lead points (expand logic for quality-based)
+        notes: row['Notes'] || null,
+        metadata: { imported_at: new Date(), county: row['County'] || null }, // Audit + extras
+      };
+
+      // Create lead (no unique – allow multiples per property if needed; pushback: Add unique constraint if 1:1 desired)
+      const lead = await prisma.leads.create({ data: leadData });
+
+      return { success: true, row: index + 1, leadId: lead.id }; // For results list
     } catch (error) {
       console.error(`Import error for row ${index + 1}:`, error);
-      return { row: index + 1, success: false, error: (error as Error).message };
+      return { success: false, row: index + 1, error: (error as Error).message };
     }
   }));
 
-  return { results: results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: (r.reason as Error).message }) }; // Logic: Flatten for client (e.g., success count)
+  // Filter fulfilled/rejected for summary (UX: Show counts in results)
+  const successful = results.filter(r => r.status === 'fulfilled' && (r.value as any).success).length;
+  const failed = results.length - successful;
+
+  if (failed === results.length) {
+    return { error: 'All rows failed – check CSV format/console logs' };
+  }
+
+  return { success: true, results, summary: { successful, failed } }; // Logic: Return array for display (no jobId yet; pushback: For long-running, add Upstash/edge func + return jobId for poll)
 }
 
-// Action: Poll import status (fix: Stub for progress polling – simulates % complete; push back: Replace with real DB query on 'import_jobs' table for prod; unblocks testing without Upstash)
+// Stub poll (replace with real DB query on 'import_jobs' table for prod; unblocks testing without Upstash)
 export async function pollImportStatus(jobId: string) {
   // Stub logic: Simulate progress (e.g., from memory or DB; here, random increment for testing)
   // In real, query prisma.import_jobs.findUnique({ where: { id: jobId } }) for { progress, results, error }
