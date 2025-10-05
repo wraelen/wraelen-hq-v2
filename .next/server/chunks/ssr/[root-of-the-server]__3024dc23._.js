@@ -192,11 +192,15 @@ async function createSupabaseServerClient() {
 "use strict";
 
 // src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart)
-/* __next_internal_action_entry_do_not_use__ [{"00315b03f56c36afe12dfeb5c652abd33bef4e3415":"signOutAction","406fe66154764a470bd2e6892cbf6564e8ba792062":"importDataAction","4079d682f668d9e609513a443751f3f25df63679e8":"dialLeadAction","40c51dafa413642fae5ba42f7a583d85c55e72290c":"signInAction"},"",""] */ __turbopack_context__.s([
+/* __next_internal_action_entry_do_not_use__ [{"00315b03f56c36afe12dfeb5c652abd33bef4e3415":"signOutAction","40466bc412b189907900eb342e636f8842c72e0114":"pollImportStatus","406fe66154764a470bd2e6892cbf6564e8ba792062":"importDataAction","4079d682f668d9e609513a443751f3f25df63679e8":"dialLeadAction","40c51dafa413642fae5ba42f7a583d85c55e72290c":"signInAction","40de287e4a19bf59e275536cc07c5d930ec2748f64":"enrichLeadRealtor"},"",""] */ __turbopack_context__.s([
     "dialLeadAction",
     ()=>dialLeadAction,
+    "enrichLeadRealtor",
+    ()=>enrichLeadRealtor,
     "importDataAction",
     ()=>importDataAction,
+    "pollImportStatus",
+    ()=>pollImportStatus,
     "signInAction",
     ()=>signInAction,
     "signOutAction",
@@ -230,7 +234,7 @@ async function signInAction(formData) {
     const password = formData.get('password')?.toString() ?? '';
     // ... (add your validation/error returns here; e.g., zod schema for email/password)
     const supabase = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseServer$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["createSupabaseServerClient"])(); // Logic: Async client (Next 15 safe)
-    const { data: { session }, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
         email,
         password
     });
@@ -238,25 +242,6 @@ async function signInAction(formData) {
         return {
             error: error.message
         };
-    }
-    // Auto-create profile if none exists (step 3 fix: No-brainer for robustness – ensures every logged-in user has a gamification profile; prevents null errors in dashboard/layout; push back: If using Supabase signup hooks, move there for new users only, but this covers all logins safely)
-    if (session?.user.id) {
-        const existingProfile = await prisma.profile.findUnique({
-            where: {
-                id: session.user.id
-            }
-        });
-        if (!existingProfile) {
-            await prisma.profile.create({
-                data: {
-                    id: session.user.id,
-                    user_id: session.user.id,
-                    role: 'novice',
-                    points: 0,
-                    badges: []
-                }
-            });
-        }
     }
     (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$client$2f$components$2f$navigation$2e$react$2d$server$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["redirect"])('/dashboard'); // Logic: Post-login to HQ (quests await!)
 }
@@ -293,16 +278,16 @@ async function importDataAction(formData) {
         }; // Logic: Early feedback (e.g., malformed rows)
     }
     const rows = parsed.data; // Logic: Typed rows (Propstream columns like 'Property Address', 'AVM', etc.)
-    const supabase = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseServer$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["createSupabaseServerClient"])(); // Logic: Hoist session fetch outside loop/transaction (efficiency – avoids redundant calls per row; best practice for batch actions)
-    const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (secure server-verified fetch – fixes "insecure getSession" warning; use for auth guards/user.id; push back: For full session tokens, keep getSession() if needed elsewhere, but this suffices for most checks)
-    if (!user?.id) {
+    const supabase = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseServer$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["createSupabaseServerClient"])(); // Logic: Hoist session fetch (efficiency – avoids per-row calls)
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user.id) {
         return {
             error: 'No session – login required'
         };
     }
     const results = await Promise.allSettled(rows.map(async (row, index)=>{
         try {
-            // Map Propstream columns to schema (flexible – handle variants/missing; added equity/mortgage for creative financing—calculate `equity_percent` if not direct)
+            // Map Propstream columns to schema (flexible – handle variants/missing; added equity/mortgage for creative financing)
             const propertyTypeMap = {
                 'single family': 'single_family',
                 'multi family': 'multi_family',
@@ -362,13 +347,13 @@ async function importDataAction(formData) {
                         phone: row['Phone 1'] || null,
                         source: 'propstream_import',
                         metadata: extracted.metadata,
-                        assigned_to: user.id,
+                        assigned_to: session.user.id,
                         points_earned: 1
                     }
                 });
                 await tx.profile.update({
                     where: {
-                        id: user.id
+                        id: session.user.id
                     },
                     data: {
                         points: {
@@ -387,7 +372,7 @@ async function importDataAction(formData) {
                 success: true
             };
         } catch (error) {
-            console.error(`Import error for row ${index + 1}:`, error); // Logic: Server log for debug (client gets summary)
+            console.error(`Import error for row ${index + 1}:`, error);
             return {
                 row: index + 1,
                 success: false,
@@ -395,40 +380,28 @@ async function importDataAction(formData) {
             };
         }
     }));
-    const importResults = results.map((r)=>r.status === 'fulfilled' ? r.value : {
-            success: false,
-            error: r.reason.message
-        }); // Logic: Flatten for client (e.g., success count)
-    // Gamification Trigger: Batch-based quest (e.g., if >50 successful imports, complete a "Bulk Import" quest – assume quest ID 'bulk-import-quest-id' exists; seed if not)
-    const successfulImports = importResults.filter((r)=>r.success).length;
-    if (successfulImports > 50) {
-        await prisma.quest_completions.create({
-            data: {
-                quest_id: 'bulk-import-quest-id',
-                profile_id: user.id,
-                evidence: {
-                    total_imports: successfulImports,
-                    points_awarded: 100
-                }
-            }
-        });
-        // Pushback: Also update profile badges here if quest unlocks one (e.g., push 'Bulk Importer' to badges array)
-        await prisma.profile.update({
-            where: {
-                id: user.id
-            },
-            data: {
-                badges: {
-                    push: 'Bulk Importer'
-                },
-                points: {
-                    increment: 100
-                }
-            }
-        });
+    return {
+        results: results.map((r)=>r.status === 'fulfilled' ? r.value : {
+                success: false,
+                error: r.reason.message
+            })
+    }; // Logic: Flatten for client (e.g., success count)
+}
+async function pollImportStatus(jobId) {
+    // Stub logic: Simulate progress (e.g., from memory or DB; here, random increment for testing)
+    // In real, query prisma.import_jobs.findUnique({ where: { id: jobId } }) for { progress, results, error }
+    const simulatedProgress = Math.min(100, Math.random() * 20 + (await new Promise((r)=>setTimeout(r, 500)) || 0)); // Fake delay/increment
+    if (simulatedProgress >= 100) {
+        return {
+            progress: 100,
+            results: [],
+            error: null
+        }; // Replace with real results
     }
     return {
-        results: importResults
+        progress: simulatedProgress,
+        results: [],
+        error: null
     };
 }
 async function dialLeadAction(leadId) {
@@ -445,8 +418,8 @@ async function dialLeadAction(leadId) {
             throw new Error('No phone for lead');
         }
         const supabase = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseServer$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["createSupabaseServerClient"])(); // Logic: Async client
-        const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (fixes warning)
-        if (!user?.id || lead.assigned_to !== user.id) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user.id || lead.assigned_to !== session.user.id) {
             throw new Error('Unauthorized or mismatched assignment');
         }
         // Twilio outbound (phone-to-phone; expand to browser via Voice SDK if web calls needed)
@@ -466,7 +439,7 @@ async function dialLeadAction(leadId) {
         await prisma.calls.create({
             data: {
                 leads_id: lead.id,
-                caller_id: user.id,
+                caller_id: session.user.id,
                 call_sid: call.sid,
                 status: 'initiated',
                 metadata: {
@@ -485,19 +458,90 @@ async function dialLeadAction(leadId) {
             error: error.message
         };
     }
-} // Helper: Stubbed extractFromLink (removed for pivot – mock for non-CSV if needed)
- // async function extractFromLink(...) { return { /* mock data */ }; } // Comment out Zillow logic
+}
+async function enrichLeadRealtor(leadId) {
+    const supabase = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseServer$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["createSupabaseServerClient"])(); // Logic: Async client
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user.id) {
+        return {
+            error: 'No session'
+        };
+    }
+    const lead = await prisma.leads.findUnique({
+        where: {
+            id: leadId
+        },
+        include: {
+            properties: true
+        }
+    });
+    if (!lead || lead.assigned_to !== session.user.id) {
+        return {
+            error: 'Unauthorized or lead not found'
+        };
+    }
+    const address = lead.properties.address; // Logic: Use full address for API query (add city/state if needed for accuracy)
+    try {
+        const response = await fetch('https://realtor-com4.p.rapidapi.com/properties/v1/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+                'x-rapidapi-host': 'realtor-com4.p.rapidapi.com'
+            },
+            body: JSON.stringify({
+                location: address,
+                limit: 1
+            })
+        });
+        if (!response.ok) {
+            return {
+                error: `API error: ${response.status}`
+            };
+        }
+        const data = await response.json();
+        const realtor = data.agents?.[0] || {}; // Logic: Parse response (adjust path per API; e.g., data.results[0].agent)
+        await prisma.leads.update({
+            where: {
+                id: leadId
+            },
+            data: {
+                realtor_first_name: realtor.first_name || null,
+                realtor_last_name: realtor.last_name || null,
+                realtor_phone: realtor.phone || null,
+                metadata: {
+                    ...lead.metadata,
+                    enriched_at: new Date(),
+                    api_source: 'realtor-com'
+                }
+            }
+        });
+        return {
+            success: true,
+            realtor
+        };
+    } catch (error) {
+        console.error('Enrich error:', error);
+        return {
+            error: error.message
+        };
+    }
+}
 ;
 (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$action$2d$validate$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["ensureServerEntryExports"])([
     signInAction,
     signOutAction,
     importDataAction,
-    dialLeadAction
+    pollImportStatus,
+    dialLeadAction,
+    enrichLeadRealtor
 ]);
 (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$server$2d$reference$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["registerServerReference"])(signInAction, "40c51dafa413642fae5ba42f7a583d85c55e72290c", null);
 (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$server$2d$reference$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["registerServerReference"])(signOutAction, "00315b03f56c36afe12dfeb5c652abd33bef4e3415", null);
 (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$server$2d$reference$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["registerServerReference"])(importDataAction, "406fe66154764a470bd2e6892cbf6564e8ba792062", null);
+(0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$server$2d$reference$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["registerServerReference"])(pollImportStatus, "40466bc412b189907900eb342e636f8842c72e0114", null);
 (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$server$2d$reference$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["registerServerReference"])(dialLeadAction, "4079d682f668d9e609513a443751f3f25df63679e8", null);
+(0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f2e$pnpm$2f$next$40$15$2e$5$2e$4_$40$babel$2b$core$40$7$2e$27$2e$1_$40$opentelemetry$2b$api$40$1$2e$7$2e$0_$40$playwright$2b$test$40$1$2e$52$2e$0_babel$2d$p_68e8c185df7d969f063bfb2ef00a51ed$2f$node_modules$2f$next$2f$dist$2f$build$2f$webpack$2f$loaders$2f$next$2d$flight$2d$loader$2f$server$2d$reference$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["registerServerReference"])(enrichLeadRealtor, "40de287e4a19bf59e275536cc07c5d930ec2748f64", null);
 }),
 "[project]/src/lib/prisma.ts [app-rsc] (ecmascript)", ((__turbopack_context__) => {
 "use strict";

@@ -1,6 +1,6 @@
 // src/lib/actions.ts – Updated with async Supabase (align with layout fix; keeps Propstream CSV ready – test upload post-restart)
 'use server'; // Logic: Marks as server-only (no client bundle bloat – optimizes for internal app with leads/calls)
-import { PrismaClient } from '@prisma/client';  // Your DB client (async-safe in actions)
+import { LeadSource, LeadType, PrismaClient, PropertyType } from '@prisma/client';  // Your DB client (async-safe in actions)
 import { redirect } from 'next/navigation'; // Server redirect (reliable – no client hacks; best for post-auth flow to dashboard quests)
 import Papa from 'papaparse'; // Logic: CSV parser (handles headers, errors – best for Propstream exports)
 import Twilio from 'twilio'; // Logic: Twilio SDK for outbound calls (inexpensive, reliable integration)
@@ -23,27 +23,10 @@ export async function signInAction(formData: FormData) {
   const password = formData.get('password')?.toString() ?? '';
   // ... (add your validation/error returns here; e.g., zod schema for email/password)
   const supabase = await createSupabaseServerClient(); // Logic: Async client (Next 15 safe)
-  const { data: { session }, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
     return { error: error.message };
   }
-
-  // Auto-create profile if none exists (step 3 fix: No-brainer for robustness – ensures every logged-in user has a gamification profile; prevents null errors in dashboard/layout; push back: If using Supabase signup hooks, move there for new users only, but this covers all logins safely)
-  if (session?.user.id) {
-    const existingProfile = await prisma.profile.findUnique({ where: { id: session.user.id } });
-    if (!existingProfile) {
-      await prisma.profile.create({
-        data: {
-          id: session.user.id, // PK matches auth user ID
-          user_id: session.user.id, // 1:1 FK to auth.users
-          role: 'novice', // Default enum (gamify: Start at base level)
-          points: 0,
-          badges: [], // Empty array
-        },
-      });
-    }
-  }
-
   redirect('/dashboard'); // Logic: Post-login to HQ (quests await!)
 }
 
@@ -62,25 +45,29 @@ export async function importDataAction(formData: FormData) {
   if (!validated.success) {
     return { error: validated.error.format() };
   }
+
   const file = formData.get('file') as File | null; // Logic: Get uploaded CSV (from dropzone/form)
   if (!file) {
     return { error: 'No file uploaded' };
   }
+
   // Parse CSV (papaparse – async, handles large files stream-like)
   const csvText = await file.text();
   const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true, dynamicTyping: true }); // Logic: Headers on (maps to objects), auto-type numbers
   if (parsed.errors.length > 0) {
     return { error: `CSV parse errors: ${parsed.errors.map(e => e.message).join('; ')}` }; // Logic: Early feedback (e.g., malformed rows)
   }
+
   const rows = parsed.data as Record<string, any>[]; // Logic: Typed rows (Propstream columns like 'Property Address', 'AVM', etc.)
-  const supabase = await createSupabaseServerClient(); // Logic: Hoist session fetch outside loop/transaction (efficiency – avoids redundant calls per row; best practice for batch actions)
-  const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (secure server-verified fetch – fixes "insecure getSession" warning; use for auth guards/user.id; push back: For full session tokens, keep getSession() if needed elsewhere, but this suffices for most checks)
-  if (!user?.id) {
+  const supabase = await createSupabaseServerClient(); // Logic: Hoist session fetch (efficiency – avoids per-row calls)
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user.id) {
     return { error: 'No session – login required' };
   }
+
   const results = await Promise.allSettled(rows.map(async (row, index) => { // Logic: Parallel for speed; settled for per-row errors
     try {
-      // Map Propstream columns to schema (flexible – handle variants/missing; added equity/mortgage for creative financing—calculate `equity_percent` if not direct)
+      // Map Propstream columns to schema (flexible – handle variants/missing; added equity/mortgage for creative financing)
       const propertyTypeMap: Record<string, PropertyType> = { // Logic: Dict for safe enum mapping (pushback: Better than lowercase assume – handles variants)
         'single family': 'single_family',
         'multi family': 'multi_family',
@@ -137,13 +124,13 @@ export async function importDataAction(formData: FormData) {
             phone: row['Phone 1'] || null, // Logic: 'Phone 1' common; expand for multiples
             source: 'propstream_import' as LeadSource,
             metadata: extracted.metadata,
-            assigned_to: user.id, // Logic: Use user.id from getUser() (secure)
+            assigned_to: session.user.id,
             points_earned: 1, // Logic: Per-lead base (gamify: bonus for batch size later)
           },
         });
 
         await tx.profile.update({
-          where: { id: user.id }, // Logic: Secure id from getUser()
+          where: { id: session.user.id },
           data: { points: { increment: 1 } }, // Logic: Accumulate (tie to quests, e.g., if rows.length >50, extra badge)
         });
 
@@ -152,35 +139,27 @@ export async function importDataAction(formData: FormData) {
 
       return { row: index + 1, leadId: lead.id, success: true };
     } catch (error) {
-      console.error(`Import error for row ${index + 1}:`, error); // Logic: Server log for debug (client gets summary)
+      console.error(`Import error for row ${index + 1}:`, error);
       return { row: index + 1, success: false, error: (error as Error).message };
     }
   }));
 
-  const importResults = results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: (r.reason as Error).message }); // Logic: Flatten for client (e.g., success count)
+  return { results: results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: (r.reason as Error).message }) }; // Logic: Flatten for client (e.g., success count)
+}
 
-  // Gamification Trigger: Batch-based quest (e.g., if >50 successful imports, complete a "Bulk Import" quest – assume quest ID 'bulk-import-quest-id' exists; seed if not)
-  const successfulImports = importResults.filter(r => r.success).length;
-  if (successfulImports > 50) {
-    await prisma.quest_completions.create({
-      data: {
-        quest_id: 'bulk-import-quest-id', // Logic: Replace with real ID (create quest: title="Bulk Import 50+ Leads", points=100, criteria={min_imports:50})
-        profile_id: user.id, // Logic: Secure id
-        evidence: { total_imports: successfulImports, points_awarded: 100 },
-      },
-    });
-    // Pushback: Also update profile badges here if quest unlocks one (e.g., push 'Bulk Importer' to badges array)
-    await prisma.profile.update({
-      where: { id: user.id },
-      data: { badges: { push: 'Bulk Importer' }, points: { increment: 100 } },
-    });
+// Action: Poll import status (fix: Stub for progress polling – simulates % complete; push back: Replace with real DB query on 'import_jobs' table for prod; unblocks testing without Upstash)
+export async function pollImportStatus(jobId: string) {
+  // Stub logic: Simulate progress (e.g., from memory or DB; here, random increment for testing)
+  // In real, query prisma.import_jobs.findUnique({ where: { id: jobId } }) for { progress, results, error }
+  const simulatedProgress = Math.min(100, (Math.random() * 20) + (await new Promise(r => setTimeout(r, 500)) as any || 0)); // Fake delay/increment
+  if (simulatedProgress >= 100) {
+    return { progress: 100, results: [], error: null }; // Replace with real results
   }
-
-  return { results: importResults };
+  return { progress: simulatedProgress, results: [], error: null };
 }
 
 // Action: Dial lead (logic: Twilio outbound call – from your Twilio number to lead phone; logs to calls table)
-export async function dialLeadAction(leadId: string) { // Logic: String for UUID (matches schema)
+export async function dialLeadAction(leadId: number) {
   try {
     const lead = await prisma.leads.findUnique({ where: { id: leadId }, include: { properties: true } });
     if (!lead?.phone) {
@@ -188,8 +167,8 @@ export async function dialLeadAction(leadId: string) { // Logic: String for UUID
     }
 
     const supabase = await createSupabaseServerClient(); // Logic: Async client
-    const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (fixes warning)
-    if (!user?.id || lead.assigned_to !== user.id) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user.id || lead.assigned_to !== session.user.id) {
       throw new Error('Unauthorized or mismatched assignment');
     }
 
@@ -206,7 +185,7 @@ export async function dialLeadAction(leadId: string) { // Logic: String for UUID
     await prisma.calls.create({
       data: {
         leads_id: lead.id,
-        caller_id: user.id, // Logic: Secure id
+        caller_id: session.user.id,
         call_sid: call.sid, // Twilio ID for tracking
         status: 'initiated',
         metadata: { address: lead.properties.address },
@@ -222,3 +201,56 @@ export async function dialLeadAction(leadId: string) { // Logic: String for UUID
 
 // Helper: Stubbed extractFromLink (removed for pivot – mock for non-CSV if needed)
 // async function extractFromLink(...) { return { /* mock data */ }; } // Comment out Zillow logic
+
+// Action: Enrich lead with realtor info (fix: Added for API call; uses RapidAPI key from .env – solves realtor missing in Propstream; push back: Cache results to avoid repeat costs)
+export async function enrichLeadRealtor(leadId: string) {
+  const supabase = await createSupabaseServerClient(); // Logic: Async client
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user.id) {
+    return { error: 'No session' };
+  }
+
+  const lead = await prisma.leads.findUnique({ where: { id: leadId }, include: { properties: true } });
+  if (!lead || lead.assigned_to !== session.user.id) {
+    return { error: 'Unauthorized or lead not found' };
+  }
+
+  const address = lead.properties.address; // Logic: Use full address for API query (add city/state if needed for accuracy)
+
+  try {
+    const response = await fetch('https://realtor-com4.p.rapidapi.com/properties/v1/search', { // Logic: Endpoint for agents by location (adjust per API docs; e.g., /agents if separate)
+      method: 'POST', // Or GET—check docs
+      headers: {
+        'Content-Type': 'application/json',
+        'x-rapidapi-key': process.env.RAPIDAPI_KEY!, // Your key from .env (add to .env: RAPIDAPI_KEY=your_key)
+        'x-rapidapi-host': 'realtor-com4.p.rapidapi.com',
+      },
+      body: JSON.stringify({ // Params from docs (example—tweak for address search)
+        location: address,
+        limit: 1, // Top realtor
+      }),
+    });
+
+    if (!response.ok) {
+      return { error: `API error: ${response.status}` };
+    }
+
+    const data = await response.json();
+    const realtor = data.agents?.[0] || {}; // Logic: Parse response (adjust path per API; e.g., data.results[0].agent)
+
+    await prisma.leads.update({
+      where: { id: leadId },
+      data: {
+        realtor_first_name: realtor.first_name || null,
+        realtor_last_name: realtor.last_name || null,
+        realtor_phone: realtor.phone || null,
+        metadata: { ...lead.metadata, enriched_at: new Date(), api_source: 'realtor-com' }, // Cache/audit
+      },
+    });
+
+    return { success: true, realtor };
+  } catch (error) {
+    console.error('Enrich error:', error);
+    return { error: (error as Error).message };
+  }
+}

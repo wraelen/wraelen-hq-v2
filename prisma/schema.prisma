@@ -123,6 +123,9 @@ model leads {
   points_earned        Int           @default(0)                 // Gamification per lead
   metadata             Json?                                     // Extras
   notes                String?
+  realtor_first_name   String?                                   // Realtor enrichment (from API/manual; pushback: Separate from owner for clarity/quests)
+  realtor_last_name    String?
+  realtor_phone        String?
   created_at           DateTime      @default(now())
   updated_at           DateTime      @updatedAt
 
