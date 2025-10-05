@@ -37,7 +37,7 @@ async function main() {
     update: {},
     create: {
       title: 'Weekly Lead Nurture',
-      description: 'Follow up on 100 leads this week (status to follow_up) for bonus points.',
+      description: 'Follow up on on 100 leads this week (status to follow_up) for bonus points.',
       type: QuestType.weekly,
       points: 200,
       criteria: { min_follow_ups: 100, period: 'week' },

@@ -21,6 +21,7 @@ export default function ExtractPage() {
   const [leads, setLeads] = useState<any[]>([]); // Logic: State for current leads (fetched/realtime)
   const [importProgress, setImportProgress] = useState(0); // Logic: Progress % (0-100)
   const [importJobId, setImportJobId] = useState<string | null>(null); // Logic: Job ID for polling
+  const [enrichRealtors, setEnrichRealtors] = useState(false); // New: Checkbox state for optional enrichment (default false – cost-aware)
   const { handleSubmit, formState: { isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(importSchema),
     defaultValues: { source: 'propstream' },
@@ -29,11 +30,12 @@ export default function ExtractPage() {
   const supabase = createClientComponentClient(); // Logic: Client Supabase for realtime subs/fetch (secure with RLS)
 
   // Fetch initial leads + sub for realtime (always show – gamified review; pushback: Pagination for >100 leads later)
+  // New: Include properties relation for equity/etc. display (fixes missing fields in UI – use select('*, properties(*)') for nested)
   useEffect(() => {
     const fetchLeads = async () => {
       const { data: { user } } = await supabase.auth.getUser(); // Secure client auth
       if (user?.id) {
-        const { data } = await supabase.from('leads').select('*').eq('assigned_to', user.id).order('created_at', { ascending: false }).limit(100); // Logic: User's assigned, recent first (limit for perf)
+        const { data } = await supabase.from('leads').select('*, properties(*)').eq('assigned_to', user.id).order('created_at', { ascending: false }).limit(100); // New: Include properties (fixes equity display)
         setLeads(data || []);
       }
     };
@@ -41,8 +43,10 @@ export default function ExtractPage() {
     fetchLeads();
 
     // Realtime sub (pushback: Efficient for gamification – live updates like MMO quest log; unsub on unmount)
-    const leadsSub = supabase.channel('leads_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leads' }, (payload) => {
-      setLeads((prev) => [payload.new, ...prev.slice(0, 99)]); // Prepend new, cap at 100
+    const leadsSub = supabase.channel('leads_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leads' }, async (payload) => {
+      // New: For new lead, fetch with properties (since payload.new lacks nested – quick refetch or assume sub pushes full)
+      const { data } = await supabase.from('leads').select('*, properties(*)').eq('id', payload.new.id).single();
+      setLeads((prev) => [data || payload.new, ...prev.slice(0, 99)]); // Prepend, cap at 100
     }).subscribe();
 
     return () => { supabase.removeChannel(leadsSub); }; // Cleanup
@@ -82,6 +86,7 @@ export default function ExtractPage() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('source', 'propstream');
+    formData.append('enrichRealtors', enrichRealtors.toString()); // New: Pass flag to action
     const result = await importDataAction(formData); // Logic: Now returns jobId for long-running (update action to support)
 
     if (result.error) {
@@ -104,6 +109,11 @@ export default function ExtractPage() {
           <input {...getInputProps()} />
           <p>{file ? file.name : 'Drag-drop CSV or click to upload'}</p>
         </div>
+        {/* New: Checkbox for optional enrichment (UX: Warn on costs; ties to formData) */}
+        <label className="flex items-center mb-4">
+          <input type="checkbox" checked={enrichRealtors} onChange={(e) => setEnrichRealtors(e.target.checked)} className="mr-2" />
+          Auto-enrich realtor info? (May incur API costs for bulk)
+        </label>
         <button type="submit" disabled={isSubmitting || !file} className="w-full p-2 bg-green-500 text-black hover:bg-green-600">
           {isSubmitting ? 'Importing...' : 'Start Import'}
         </button>
@@ -132,30 +142,42 @@ export default function ExtractPage() {
               <TableHead>Status</TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Points Earned</TableHead>
-              <TableHead>Equity % (Creative)</TableHead> {/* Logic: From metadata for financing focus */}
+              <TableHead>Equity % (Creative)</TableHead> {/* New: Display equity from properties (fixes missing in UI; format as %) */}
+              <TableHead>AVM</TableHead> {/* New: More fields for completeness */}
+              <TableHead>Realtor First</TableHead>
+              <TableHead>Realtor Last</TableHead>
+              <TableHead>Realtor Phone</TableHead>
+              <TableHead>Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-  {leads.map((lead) => (
-    <TableRow key={lead.id}>
-      // ... existing cells
-      <TableCell>{lead.realtor_first_name || 'N/A'}</TableCell>
-      <TableCell>{lead.realtor_last_name || 'N/A'}</TableCell>
-      <TableCell>{lead.realtor_phone || 'N/A'}</TableCell>
-      <TableCell>
-        <Button onClick={async () => {
-          const result = await enrichLeadRealtor(lead.id);
-          if (result.success) {
-            // Update local state (or rely on realtime sub)
-            setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...result.realtor } : l));
-          } else {
-            alert(result.error); // Simple error UX; use toast later
-          }
-        }}>Enrich Realtor</Button>
-      </TableCell>
-    </TableRow>
-  ))}
-</TableBody>
+            {leads.map((lead) => (
+              <TableRow key={lead.id}>
+                <TableCell>{lead.properties?.address || 'N/A'}</TableCell> {/* New: Access nested properties */}
+                <TableCell>{`${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'N/A'}</TableCell>
+                <TableCell>{lead.phone || 'N/A'}</TableCell>
+                <TableCell>{lead.status}</TableCell>
+                <TableCell>{lead.source}</TableCell>
+                <TableCell>{lead.points_earned}</TableCell>
+                <TableCell>{lead.properties?.equity ? `${lead.properties.equity.toFixed(2)}%` : 'N/A'}</TableCell> {/* New: Display/fix equity */}
+                <TableCell>{lead.properties?.avm ? `$${lead.properties.avm.toFixed(0)}` : 'N/A'}</TableCell> {/* New: Example for other fields */}
+                <TableCell>{lead.realtor_first_name || 'N/A'}</TableCell>
+                <TableCell>{lead.realtor_last_name || 'N/A'}</TableCell>
+                <TableCell>{lead.realtor_phone || 'N/A'}</TableCell>
+                <TableCell>
+                  <Button onClick={async () => {
+                    const result = await enrichLeadRealtor(lead.id);
+                    if (result.success) {
+                      // Update local state (or rely on realtime sub)
+                      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...result.realtor } : l));
+                    } else {
+                      alert(result.error); // Simple error UX; use toast later
+                    }
+                  }}>Enrich Realtor</Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
         </Table>
       </div>
     </div>

@@ -38,6 +38,8 @@ export async function signOutAction() {
 }
 
 // Action: Import from Propstream CSV (logic: Parse file → per-row extract/map → batch upsert properties/create leads – returns results for UX)
+// New: Added enrichRealtors flag from form (optional – if true and env enabled, enrich after create; pushback: Gate to avoid costs; serial for now, batch later if scale)
+// New: After all, trigger quest checks (increment points by leads.length, check/complete quests via transaction – atomic/best practice to avoid partial fails)
 export async function importDataAction(formData: FormData) {
   const validated = importSchema.safeParse({
     source: formData.get('source')?.toString() ?? 'propstream',
@@ -50,6 +52,8 @@ export async function importDataAction(formData: FormData) {
   if (!file) {
     return { error: 'No file uploaded' };
   }
+
+  const enrichRealtors = formData.get('enrichRealtors') === 'true'; // New: Optional flag from checkbox (default false)
 
   // Parse CSV (papaparse – async, handles large files stream-like)
   const csvText = await file.text();
@@ -98,10 +102,8 @@ export async function importDataAction(formData: FormData) {
         bedrooms: Number(row['Bedrooms']) || null, // Explicit Number (NaN → null)
         bathrooms: Number(row['Total Bathrooms']) || null, // Matches CSV header 'Total Bathrooms'
         square_feet: Number(row['Building Sqft']) || null,
-        lot_size: Number(row['Lot Size Sqft']) || null,
         year_built: Number(row['Effective Year Built']) || null,
         avm: Number(row['Est. Value']) || null, // Matches 'Est. Value' for AVM
-        tax_assessed_value: Number(row['Total Assessed Value']) || null,
         owner_occupied: row['Owner Occupied']?.toLowerCase() === 'yes' ? true : (row['Owner Occupied']?.toLowerCase() === 'no' ? false : null), // Boolean map from string
         distress_signals: row['Foreclosure Factor'] ? { foreclosure: row['Foreclosure Factor'] } : null, // Json: Basic distress (expand with more CSV fields if available)
         notes: row['Marketing Lists'] || null, // Now string (e.g., '1' instead of 1 – fixes validation error)
@@ -144,6 +146,11 @@ export async function importDataAction(formData: FormData) {
       // Create lead (no unique – allow multiples per property if needed; pushback: Add unique constraint if 1:1 desired)
       const lead = await prisma.leads.create({ data: leadData });
 
+      // New: Optional auto-enrich (gate with env to avoid bulk costs; pushback: Serial for simplicity, but if slow, add batch/queue later with Upstash)
+      if (enrichRealtors && process.env.ENABLE_AUTO_ENRICH === 'true') {
+        await enrichLeadRealtor(lead.id); // Call existing (handles errors internally – log, don't fail import)
+      }
+
       return { success: true, row: index + 1, leadId: lead.id }; // For results list
     } catch (error) {
       console.error(`Import error for row ${index + 1}:`, error);
@@ -154,6 +161,59 @@ export async function importDataAction(formData: FormData) {
   // Filter fulfilled/rejected for summary (UX: Show counts in results)
   const successful = results.filter(r => r.status === 'fulfilled' && (r.value as any).success).length;
   const failed = results.length - successful;
+
+  // New: Trigger quests (after all imports – use transaction for atomic points/quests; best practice to prevent races)
+  if (successful > 0) {
+    await prisma.$transaction(async (tx) => {
+      // Get profile (by user_id from session)
+      const profile = await tx.profile.findUnique({ where: { user_id: session.user.id } });
+      if (!profile) throw new Error('Profile not found');
+
+      // Increment points (1 per successful lead; ties to leads.points_earned but aggregates to profile)
+      await tx.profile.update({
+        where: { user_id: session.user.id },
+        data: { points: { increment: successful } },
+      });
+
+      // Get active quests (for this user – check incomplete)
+      const quests = await tx.quest.findMany({
+        where: { active: true },
+      });
+
+      for (const quest of quests) {
+        // Check if already completed (unique constraint prevents dupes)
+        const existingCompletion = await tx.quest_completions.findUnique({
+          where: { quest_id_profile_id: { quest_id: quest.id, profile_id: profile.id } },
+        });
+        if (existingCompletion) continue;
+
+        // Parse criteria and check (basic for min_imports; expand for other types like min_calls)
+        const criteria = quest.criteria as { min_imports?: number } | null;
+        if (criteria?.min_imports) {
+          // Count total imports for user (ever; for one_time – adjust for daily/weekly with date filters)
+          const totalImports = await tx.leads.count({
+            where: { assigned_to: profile.id, source: LeadSource.propstream_import },
+          });
+          if (totalImports >= criteria.min_imports) {
+            // Complete quest (award extra points)
+            await tx.quest_completions.create({
+              data: {
+                quest_id: quest.id,
+                profile_id: profile.id,
+                evidence: { total_imports: totalImports, awarded_points: quest.points },
+              },
+            });
+            await tx.profile.update({
+              where: { id: profile.id },
+              data: { points: { increment: quest.points } },
+            });
+            // Optional: Unlock badge if requirements met (e.g., check badges.requirements – add similar loop if needed)
+          }
+        }
+        // Expand: Add cases for other criteria (e.g., if (criteria.min_calls) { count calls... })
+      }
+    });
+  }
 
   if (failed === results.length) {
     return { error: 'All rows failed – check CSV format/console logs' };
@@ -218,6 +278,9 @@ export async function dialLeadAction(leadId: number) {
 // async function extractFromLink(...) { return { /* mock data */ }; } // Comment out Zillow logic
 
 // Action: Enrich lead with realtor info (fix: Added for API call; uses RapidAPI key from .env – solves realtor missing in Propstream; push back: Cache results to avoid repeat costs)
+// New: Improved query with full address (address + city + state + zip – fixes partial failures; pushback: If API still flaky, add fallback or switch to another like Datafiniti)
+// New: Added detailed logging for debugging (query, status, raw data, parsed realtor – best practice for API issues; remove or gate in prod if verbose)
+// Suggestion: Alternate parsing to data.properties?.[0]?.listing_agent (common in Realtor APIs; adjust based on logs/raw data)
 export async function enrichLeadRealtor(leadId: string) {
   const supabase = await createSupabaseServerClient(); // Logic: Async client
   const { data: { session } } = await supabase.auth.getSession();
@@ -230,7 +293,9 @@ export async function enrichLeadRealtor(leadId: string) {
     return { error: 'Unauthorized or lead not found' };
   }
 
-  const address = lead.properties.address; // Logic: Use full address for API query (add city/state if needed for accuracy)
+  const fullAddress = `${lead.properties.address}, ${lead.properties.city}, ${lead.properties.state} ${lead.properties.zip_code}`; // New: Full query for better API accuracy (fixes partial address issues)
+
+  console.log(`Enriching lead ${leadId} with query: ${fullAddress}`); // New: Log the input query for verification
 
   try {
     const response = await fetch('https://realtor-com4.p.rapidapi.com/properties/v1/search', { // Logic: Endpoint for agents by location (adjust per API docs; e.g., /agents if separate)
@@ -241,17 +306,24 @@ export async function enrichLeadRealtor(leadId: string) {
         'x-rapidapi-host': 'realtor-com4.p.rapidapi.com',
       },
       body: JSON.stringify({ // Params from docs (example—tweak for address search)
-        location: address,
+        location: fullAddress,
         limit: 1, // Top realtor
       }),
     });
 
+    console.log(`API response status: ${response.status}`); // New: Log status (e.g., 200 ok, 404 no match, 401 bad key)
+
     if (!response.ok) {
+      console.log(`API error details: ${await response.text()}`); // New: Log error body if not ok (e.g., rate limit or invalid params)
       return { error: `API error: ${response.status}` };
     }
 
     const data = await response.json();
-    const realtor = data.agents?.[0] || {}; // Logic: Parse response (adjust path per API; e.g., data.results[0].agent)
+    console.log('Raw API response data:', JSON.stringify(data, null, 2)); // New: Log full response (inspect structure for agents)
+
+    const realtor = data.properties?.[0]?.listing_agent || {}; // New: Alternate parsing (common in Realtor APIs; fallback to {} if no match – adjust if logs show different path, e.g., data.agents?.[0])
+
+    console.log('Parsed realtor:', realtor); // New: Log what we're extracting (e.g., empty if no match)
 
     await prisma.leads.update({
       where: { id: leadId },
@@ -259,7 +331,7 @@ export async function enrichLeadRealtor(leadId: string) {
         realtor_first_name: realtor.first_name || null,
         realtor_last_name: realtor.last_name || null,
         realtor_phone: realtor.phone || null,
-        metadata: { ...lead.metadata, enriched_at: new Date(), api_source: 'realtor-com' }, // Cache/audit
+        metadata: { ...((typeof lead.metadata === 'object' && lead.metadata !== null) ? lead.metadata : {}), enriched_at: new Date(), api_source: 'realtor-com' }, // Cache/audit
       },
     });
 
