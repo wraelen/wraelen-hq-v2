@@ -85,7 +85,7 @@
         }
       },
       "layer": {
-        "app/extract/page": "action-browser"
+        "app/extract/page": "rsc"
       },
       "exportedName": "enrichLeadRealtor",
       "filename": "src/lib/actions.ts"

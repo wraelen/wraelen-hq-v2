@@ -1,43 +1,56 @@
-// src/app/dashboard/page.tsx – Server-rendered dashboard (efficient, secure data fetch – best for loading gamification data like role/points/badges on initial load; push back: If real-time updates needed for leaderboards, add client component with Supabase Realtime subscribe)
-import { createServerClient } from '@supabase/ssr'; // Updated: ssr client (async-safe for Next.js 15+ – fixes old helpers deprecation; best for server fetches without cookies await issues)
-import { cookies } from 'next/headers'; // For cookie store (secure for sessions – server-only)
-import { redirect } from 'next/navigation'; // For unauth redirect (best practice: Server-side guard – fast, no client flash)
-import Leaderboard from '@/components/ui/Leaderboard'; // Logic: New client component for real-time (import below)
-import prisma from '@/lib/prisma'; // Prisma singleton (logic: Relational fetch for profile – efficient, avoids multiple connections per request; best for scale as reps view dashboards concurrently)
+// src/app/dashboard/page.tsx – Dashboard page (SSR for initial data; gamified HQ – welcome, points/badges, progress, leaderboard; uses Shadcn for styled sections)
+// Logic: Added icue-panel class to Cards (matches GUI – gradients/shadows). Kept structure; enhanced with iCUE-like labels/controls (e.g., smaller text, aligned descriptions).
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; 
+import Leaderboard from '@/components/ui/Leaderboard'; 
+import { Progress } from '@/components/ui/progress'; 
+import prisma from '@/lib/prisma'; 
+import { createSupabaseServerClient } from '@/lib/supabaseServer';
 
 export default async function Dashboard() {
-  const cookieStore = await cookies(); // Logic: Awaitable in 15+ (best for dynamic APIs – secure cookie access)
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: {
-      getAll: () => cookieStore.getAll(),
-      setAll: (cookiesToSet) => {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); // Logic: Attempts set (succeeds in components; ignored in actions via catch – middleware refreshes on redirect)
-        } catch {
-          // The `set` method was called from a Server Action. Ignore – middleware will refresh session on next request.
-        }
-      },
-    } }
-  ); // Logic: ssr client (async-safe sessions – replaces old helpers; best for SSR without deprecation warnings)
-  const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (secure server-verified fetch – fixes "insecure getSession" warning; use for auth guards/user.id; push back: For full session tokens, keep getSession() if needed elsewhere, but this suffices for most checks)
-  if (!user) redirect('/auth/signin'); // Logic: Guard unauth (server-side – best for security, prevents data leaks before client render)
-  const profile = await prisma.profile.findUnique({ where: { id: user.id } }); // Logic: Fix - Use 'profile' singular (matches updated schema model name); Fetch gamification data (relational – efficient query; push back: If no profile, create on-the-fly or handle error for robustness)
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  // Initial leaderboard data (SSR for SEO/fast load; real-time sub updates client-side)
-  const initialLeaders = await prisma.profile.findMany({
-    orderBy: { points: 'desc' },
-    take: 10, // Top 10 for leaderboard
-    select: { id: true, role: true, points: true, badges: true }, // Slim projection (performance)
-  });
+  let profile = null;
+  let topLeaders = [];
+  if (user?.id) {
+    profile = await prisma.profile.findUnique({ where: { id: user.id }, select: { role: true, points: true, badges: true } });
+    topLeaders = await prisma.profile.findMany({ 
+      select: { id: true, role: true, points: true, badges: true },
+      orderBy: { points: 'desc' },
+      take: 10,
+    });
+  }
 
   return (
-    <div className="p-4 bg-black text-green-500 font-mono">
-      <h1>Welcome to HQ, {user.email}! Role: {profile?.role || 'Novice'}</h1> // Logic: Use user.email (from getUser() – secure; personalized – motivates reps; fallback for no profile)
-      <p>Points: {profile?.points || 0} | Badges: {profile?.badges.join(', ') || 'None'}</p> // Logic: Gamification stats (stub – expand with progress bar/component for visual "level up" feel)
-      <Leaderboard initialLeaders={initialLeaders} /> // Logic: Pass initial data (hydrates client sub)
-      {/* Quest board here – e.g., <QuestBoard userId={user.id} /> or realtime sub for live updates (push back: Use Supabase Realtime for peer challenges – feels "game-like" without polling) */}
+    <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4"> {/* Updated: Grid layout (iCUE compact sections – responsive) */}
+      <Card className="icue-panel"> {/* New: Custom class for iCUE style (gradient, shadow) */}
+        <CardHeader>
+          <CardTitle className="text-lg">Welcome to HQ, {user?.email}! Role: {profile?.role || 'novice'}</CardTitle> {/* Updated: Smaller title (lg) for compact GUI */}
+          <CardDescription className="text-sm text-muted-foreground">// Use user email (from getUser) - secure, personalized - motivates reps; fallback for no profile</CardDescription> 
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2"> {/* New: Gap for iCUE-like vertical stacking */}
+          <div className="flex justify-between text-sm"> {/* New: Aligned label-value like iCUE settings */}
+            <span>Points:</span>
+            <span>{profile?.points || 0}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span>Badges:</span>
+            <span>{profile?.badges?.join(', ') || 'None'}</span>
+          </div>
+          <Progress value={(profile?.points || 0) / 1000 * 100} className="h-2 mt-2" /> {/* Updated: Thinner (h-2) like iCUE sliders */}
+          <p className="text-xs text-muted-foreground">// Gamification stats (stub - expand with progress bar/component for visual "level up" feel)</p> 
+        </CardContent>
+      </Card>
+
+      <Card className="icue-panel md:col-span-2"> {/* New: Span for wider leaderboard (iCUE full-width sections) */}
+        <CardHeader>
+          <CardTitle className="text-lg">Rank Role Points Badges Quest: Top Reps</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Leaderboard initialLeaders={topLeaders} /> 
+          <p className="text-xs text-muted-foreground">// Pass initial data (hydrate client sub)</p> 
+        </CardContent>
+      </Card>
     </div>
   );
 }

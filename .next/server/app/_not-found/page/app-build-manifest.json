@@ -1,6 +1,7 @@
 {
   "pages": {
     "/_not-found/page": [
+      "static/chunks/[root-of-the-server]__1dbf05ef._.css",
       "static/chunks/node_modules__pnpm_c3175b55._.js",
       "static/chunks/src_eae66b3a._.js",
       "static/chunks/src_app_layout_tsx_46438704._.js",
