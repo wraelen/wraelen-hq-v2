@@ -1,12 +1,10 @@
-/* src/styles/globals.css – Renamed from tailwind.css (standard – easier imports/maintenance; no code removed, just fixed imports and added monospace) */
-/* Logic: Updated vars to closer iCUE match (darker grays #2A2A2A bg, #3C3C3C cards, blue #0078D4 primary – from estimates; kept your structure). Added subtle gradient option for headers. No removals. */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import "tw-animate-css"; 
+@import "tw-animate-css"; /* Kept: Assuming tailwind-animate dep (for gamified transitions – e.g., progress bars) */
 
-/* Removed invalid @custom-variant rule */ 
+/* Removed invalid @custom-variant rule */ /* Kept comment */
 
 /*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
@@ -24,11 +22,10 @@
   ::file-selector-button {
     border-color: var(--color-gray-200, currentColor);
   }
-  body {
-    font-family: var(--font-roboto, sans-serif); /* Updated: Use Roboto variable (iCUE clean sans-serif – best for GUI readability; pushback: If console vibe key, revert to monospace) */
-  }
 }
-
+/*
+  ---break---
+*/
 :root {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -65,35 +62,48 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --background: #2A2A2A; /* Updated: Darker gray like iCUE main bg (from screenshot – subdued) */
-  --foreground: #FFFFFF; /* Updated: White text for high contrast */
-  --card: #3C3C3C; /* New: Lighter gray for panels/cards (iCUE section bg) */
-  --primary: #0078D4; /* Updated: Deeper blue accent (iCUE sliders/icons – closer match vs #00A0E9 cyan) */
-  /* ... (kept rest of your vars; adjust others if needed, e.g., --border: #4A4A4A for subtle lines) */
+  --background: oklch(#1F1F1F);
+  --foreground: oklch(0.141 0.005 285.823);
 }
-
+/*
+  ---break---
+*/
 .dark {
-  --background: #2A2A2A; /* Updated */
-  --foreground: #FFFFFF;
-  --card: #3C3C3C;
-  --card-foreground: #FFFFFF;
-  --popover: #3C3C3C;
-  --popover-foreground: #FFFFFF;
-  --primary: #0078D4;
-  --primary-foreground: #FFFFFF;
-  --secondary: #4A4A4A; /* Updated: Mid-gray for secondary (iCUE tracks) */
-  --secondary-foreground: #FFFFFF;
-  --muted: #4A4A4A;
-  --muted-foreground: #A0A0A0; /* Updated: Muted gray text (iCUE labels) */
-  --accent: #0078D4;
-  --accent-foreground: #FFFFFF;
-  --destructive: #C42B1C; /* Kept, but iCUE rarely uses red – adjust if needed */
-  --border: #4A4A4A; /* Updated: Subtle borders (iCUE dividers) */
-  --input: #3C3C3C;
-  --ring: #0078D4;
-  /* ... (kept charts/sidebar; add if expanding to sidebars: linear-gradient for subtle blue fades) */
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
 }
-
+/*
+  ---break---
+*/
 @layer base {
   * {
     border-color: var(--color-border);
@@ -102,11 +112,5 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-  }
-  /* New: iCUE-like custom class for panels (use on Cards: subtle gradient bg) */
-  .icue-panel {
-    background: linear-gradient(to bottom, #3C3C3C, #2A2A2A); /* Subtle fade like iCUE sections */
-    border-radius: 4px; /* Less rounded (iCUE square-ish) */
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2); /* Subtle shadow */
   }
 }
