@@ -121,10 +121,12 @@ export default function ExtractPage() {
     formData.append('enrichRealtors', enrichRealtors.toString()); // New: Pass flag to action
     const result = await importDataAction(formData); // Logic: Now returns jobId for long-running (update action to support)
 
-    if (result.error) {
+    if ('error' in result && result.error) {
       setError('Import failed: ' + JSON.stringify(result.error));
-    } else {
+    } else if ('jobId' in result && typeof result.jobId === 'string') {
       setImportJobId(result.jobId); // Start polling
+    } else {
+      setError('Import failed: Unexpected response from server.');
     }
   };
 
