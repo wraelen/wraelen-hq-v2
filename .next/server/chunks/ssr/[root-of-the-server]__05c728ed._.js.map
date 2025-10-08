@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///home/wraelen/wraelen/wraelen-internal-boilerplate/.next-internal/server/app/page/actions.js%20%28server%20actions%20loader%29"],"sourcesContent":["export {$$RSC_SERVER_ACTION_0 as '40d92fdaace826a4b14baf5b30cd6ab04e268791d4'} from 'ACTIONS_MODULE0'\n"],"names":[],"mappings":";AAAA","debugId":null}},
-    {"offset": {"line": 25, "column": 0}, "map": {"version":3,"sources":["file:///home/wraelen/wraelen/wraelen-internal-boilerplate/src/app/page.tsx"],"sourcesContent":["// src/app/page.tsx – Root page (server-side; best practice: Redirect to dashboard – middleware handles auth check; no-brainer for gamified internal app, avoids starter bloat)\nimport { redirect } from 'next/navigation';  // Logic: Server redirect (efficient – no client render; ties into middleware for session guard)\n\nexport default function Home() {\n  redirect('/dashboard');  // Logic: Auto-forward to HQ core (e.g., quests/levels – scalable; if no session, middleware bounces to signin without loading this)\n}"],"names":[],"mappings":"AAAA,+KAA+K;;;;;AAC/K,wuBAA6C,gGAAgG;AAA7I;;AAEe,SAAS;IACtB,IAAA,icAAQ,EAAC,eAAgB,oIAAoI;AAC/J","debugId":null}}]
-}
