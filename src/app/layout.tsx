@@ -1,160 +1,105 @@
 // src/app/layout.tsx – Root layout (SSR for session fetch; gamified header with role/XP – updated for async Supabase) 
 // Logic: Integrated Shadcn Sidebar (fixed left nav – always visible on desktop; rounded/shadowed container for app-like feel). Kept session/header; content wrapped in <SidebarProvider> (flex sibling). Menu structure per spec (mains + Data submenu). Icons via Lucide (Heroicons equiv). No removals – additive for navigation. 
 // Fix: Wrapped sidebar + main in <SidebarProvider> (context for useSidebar hook – fixes "must be used within SidebarProvider" error; best practice per Shadcn docs). No other changes. 
+// Update: Refactored to match Shadcn demo style – used nav items array for reusability (best practice; easy to add icons/submenus/roles), added SidebarInset for main (auto-handles padding/collapse), extracted header to DashboardHeader component (with search/user for demo match). Added stroke="currentColor" to icons (fixes visibility in custom themes). 
+// Fix for runtime error: Reformatted asChild usages to have no whitespace/newlines around the child element (prevents text nodes, ensuring single React element child for Radix Slot – common fix per docs/forums; no-brainer to avoid "React.Children.only" error without changing structure). 
 import '@/styles/global.css'; // Kept: Global styles 
-import { Award, Building, // For sub: Properties 
-  Database as DatabaseIcon, FileText, Home, Phone, PhoneCall, // For sub: Call Metrics 
-  Settings, ShoppingBag, Users, // For sub: Leads 
-} from 'lucide-react'; 
-import Link from 'next/link'; 
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // New: Import for submenu (fixes li nesting/hydration; collapsible for gamified "unlock" feel) 
-import { Button } from '@/components/ui/button'; // Use styled Button for logout 
-import { Progress } from '@/components/ui/progress'; // Assuming Shadcn 
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, // New: Import provider (context for hooks – fixes error) 
-} from '@/components/ui/sidebar'; 
+import { Award, Building, Database as DatabaseIcon, FileText, Home, Phone, PhoneCall, Settings, ShoppingBag, Users } from 'lucide-react'; 
+import Link from 'next/link';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // For Data submenu (demo-style accordion)
+import { Button } from '@/components/ui/button';
+import DashboardHeader from '@/components/ui/DashboardHeader'; // New: Extracted header component (matches demo with search/user) 
+import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarProvider } from '@/components/ui/sidebar'; // Added Sub components for non-accordion submenus if needed 
 import { signOutAction } from '@/lib/actions'; // Import server action (bound for form) 
 import prisma from '@/lib/prisma'; // Shared singleton 
 import { createSupabaseServerClient } from '@/lib/supabaseServer'; // Import async helper (fixes warnings) 
-import type { Database } from '@/types/database.types'; // New: Sidebar imports (Shadcn – fixed/always visible; run CLI if missing) 
-// New: Sidebar imports (Shadcn – fixed/always visible; run CLI if missing) 
-// New: Icons (Lucide – Heroicons set; lightweight, matches Shadcn) 
+// New: Nav items array (best practice for demo-style – reusable, easy to map with icons/sub; your menu preserved) 
+const navItems = [ 
+  { title: 'Home', href: "/dashboard", icon: Home }, 
+  { title: 'Extract', href: "/extract", icon: FileText }, 
+  { title: 'Dialer', href: "/dialer", icon: Phone }, 
+  { title: 'Achievement Gallery', href: "/achievements", icon: Award }, 
+  { title: 'Shop', href: "/shop", icon: ShoppingBag }, 
+  { 
+    title: 'Data', 
+    icon: DatabaseIcon, 
+    subItems: [ 
+      { title: 'Leads', href: "/data/leads", icon: Users }, 
+      { title: 'Properties', href: "/data/properties", icon: Building }, 
+      { title: 'Call Metrics', href: "/data/calls", icon: PhoneCall }, 
+    ], 
+  }, 
+  { title: 'Settings', href: "/settings", icon: Settings }, 
+]; 
 export default async function RootLayout({ children }: { children: React.ReactNode }) { 
-  const supabase = await createSupabaseServerClient(); // Logic: Await async client (Next 15 compatible – no sync warnings) 
-  const { data: { user } } = await supabase.auth.getUser(); // Logic: Switch to getUser() (secure verification with Supabase server – fixes "insecure getSession" warning; best practice for prod/internal apps to prevent tampering; push back: Use this for user.id/role fetches, as it's authenticated vs. local cookie-based getSession()) 
+  const supabase = await createSupabaseServerClient(); 
+  const { data: { user } } = await supabase.auth.getUser(); 
   // Fetch profile for gamification (role/points – plain data only) 
   let role = 'guest'; 
   let xp = 0; 
   if (user?.id) { 
-    const profile = await prisma.profile.findUnique({ where: { id: user.id } }); // Logic: profiles (match schema; assumes generate ran) 
+    const profile = await prisma.profile.findUnique({ where: { id: user.id } }); 
     role = profile?.role || 'rep'; 
     xp = profile?.points || 0; 
   } 
-  return (  
+  return ( 
     <html lang="en"> 
       <body className="antialiased font-mono bg-background text-foreground dark"> 
-        {/* New: SidebarProvider wrap (context for entire sidebar/main – fixes useSidebar error) */} 
         <SidebarProvider> 
-          {/* New: Flex container for sidebar + main (app-like layout – sidebar fixed left) */} 
-          <div className="flex min-h-screen"> 
-            {/* New: Sidebar (fixed left, always visible – open={true}; rounded/shadowed container for iCUE panel feel) */} 
-            <Sidebar className="fixed left-0 top-0 h-full w-64 bg-card p-4 shadow-md"> 
-              {/* Logo placeholder – blue circle; swap for HQ icon */} 
-              <SidebarHeader> 
-                <div className="flex items-center gap-2"> 
-                  <div className="h-8 w-8 rounded-full bg-primary" /> 
-                  <span className="font-semibold text-primary">Wraelen HQ</span> {/* App title – blue accent */} 
-                </div> 
-              </SidebarHeader> 
-              <SidebarContent> 
-                {/* New: Main Menu Groups (per spec – flat structure; Data as nested/indented submenu) */} 
-                <SidebarGroup> 
-                  <SidebarMenu> 
-                    <SidebarMenuItem> 
-                      <SidebarMenuButton asChild> 
-                        <Link href="/dashboard"> 
-                          <Home className="h-5 w-5" /> {/* Increased size for visibility */} 
-                          <span>Home</span> 
-                        </Link> 
-                      </SidebarMenuButton> 
-                    </SidebarMenuItem> 
-                    <SidebarMenuItem> 
-                      <SidebarMenuButton asChild> 
-                        <Link href="/extract"> 
-                          <FileText className="h-5 w-5" /> 
-                          <span>Extract</span> 
-                        </Link> 
-                      </SidebarMenuButton> 
-                    </SidebarMenuItem> 
-                    <SidebarMenuItem> 
-                      <SidebarMenuButton asChild> 
-                        <Link href="/dialer"> 
-                          <Phone className="h-5 w-5" /> 
-                          <span>Dialer</span> 
-                        </Link> 
-                      </SidebarMenuButton> 
-                    </SidebarMenuItem> 
-                    <SidebarMenuItem> 
-                      <SidebarMenuButton asChild> 
-                        <Link href="/achievements"> 
-                          <Award className="h-5 w-5" /> 
-                          <span>Achievement Gallery</span> 
-                        </Link> 
-                      </SidebarMenuButton> 
-                    </SidebarMenuItem> 
-                    <SidebarMenuItem> 
-                      <SidebarMenuButton asChild> 
-                        <Link href="/shop"> 
-                          <ShoppingBag className="h-5 w-5" /> 
-                          <span>Shop</span> 
-                        </Link> 
-                      </SidebarMenuButton> 
-                    </SidebarMenuItem> 
-                    {/* Fix: Replaced flat SidebarMenuItem with Accordion for Data submenu (collapsible, fixes li nesting/hydration errors; no-brainer for scalability/UX – reps can collapse to focus; uses theme vars for hover/animation) */} 
-                    <Accordion type="single" collapsible className="mt-4"> 
-                      <AccordionItem value="data"> 
-                        <AccordionTrigger className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground px-2 py-2 rounded-md transition-colors"> 
-                          <DatabaseIcon className="h-5 w-5 mr-2" /> 
-                          Data 
-                        </AccordionTrigger> 
-                        <AccordionContent className="pl-4"> 
-                          {/* Nested list for subitems (proper <ul><li> structure – avoids invalid nesting) */} 
-                          <ul className="space-y-1"> 
-                            <li> 
-                              <Link href="/data/leads" className="flex items-center px-2 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-md transition-colors"> 
-                                <Users className="h-5 w-5 mr-2" /> 
-                                Leads 
-                              </Link> 
-                            </li> 
-                            <li> 
-                              <Link href="/data/properties" className="flex items-center px-2 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-md transition-colors"> 
-                                <Building className="h-5 w-5 mr-2" /> 
-                                Properties 
-                              </Link> 
-                            </li> 
-                            <li> 
-                              <Link href="/data/calls" className="flex items-center px-2 py-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-md transition-colors"> 
-                                <PhoneCall className="h-5 w-5 mr-2" /> 
-                                Call Metrics 
-                              </Link> 
-                            </li> 
-                          </ul> 
-                        </AccordionContent> 
-                      </AccordionItem> 
-                    </Accordion> 
-                    <SidebarMenuItem> 
-                      <SidebarMenuButton asChild> 
-                        <Link href="/settings"> 
-                          <Settings className="h-5 w-5" /> 
-                          <span>Settings</span> 
-                        </Link> 
-                      </SidebarMenuButton> 
-                    </SidebarMenuItem> 
-                  </SidebarMenu> 
-                </SidebarGroup> 
-              </SidebarContent> 
-              {/* New: Footer (logout – ties to existing form; always at bottom) */} 
-              <SidebarFooter> 
-                <form action={signOutAction}> {/* Kept: Bind server action */} 
-                  <Button variant="ghost" type="submit">Logout</Button> 
-                </form> 
-              </SidebarFooter> 
-            </Sidebar> 
-            {/* New: Main content area (flex sibling – pushes content right of sidebar; full height) */} 
-            <main className="flex-1 p-6 bg-background lg:ml-64"> {/* Fix: Added lg:ml-64 to shift content right on large screens (prevents misalignment/overlap; responsive – full width on mobile) */} 
-              {/* Kept: Your existing header (top bar for XP/role – complements sidebar; mb-4 for spacing) */} 
-              <div className="mb-4 flex items-center justify-between"> 
-                <h1 className="text-2xl font-bold">HQ Nav</h1> {/* Updated: Card bg/shadow for iCUE panel feel */} 
-                <div className="flex items-center gap-4"> 
-                  <div className="rounded-md bg-card p-4 shadow-md"> 
-                    <span className="font-medium text-primary">Role: {role}</span> {/* Theme vars for consistency */} 
-                  </div> 
-                  <div className="rounded-md bg-card p-4 shadow-md"> 
-                    <span className="font-medium text-primary">XP: {xp}</span> 
-                    <Progress value={(xp / 1000) * 100} className="mt-2" /> {/* Logic: XP bar (gamified progress – tie to levels) */} 
-                  </div> 
-                </div> 
+          <Sidebar variant="sidebar" collapsible="none" className="fixed left-0 top-0 h-full w-64 bg-card shadow-md border-r"> {/* Updated: Removed p-4 (demo uses border-r instead; cleaner) */} 
+            <SidebarHeader className="h-16 flex items-center px-4 border-b"> {/* Demo-style fixed height/border */} 
+              <div className="flex items-center gap-2 font-semibold"> 
+                <div className="h-6 w-6 rounded bg-primary" /> {/* Smaller logo for demo match */} 
+                <span>Wraelen HQ</span> 
               </div> 
-              {children} {/* Content renders here (e.g., /dashboard page) */} 
+            </SidebarHeader> 
+            <SidebarContent> 
+              <SidebarGroup> 
+                <SidebarGroupContent> 
+                  <SidebarMenu> 
+                    {navItems.map((item) => ( 
+                      <SidebarMenuItem key={item.title}> 
+                        {item.subItems ? ( 
+                          <Accordion type="single" collapsible defaultValue={item.title}> 
+                            <AccordionItem value={item.title} className="border-none"> 
+                              <AccordionTrigger className="py-2 text-sm hover:bg-accent hover:text-accent-foreground"> 
+                                <item.icon className="h-4 w-4 mr-2 stroke-current" /> 
+                                {item.title} 
+                              </AccordionTrigger> 
+                              <AccordionContent className="p-0"> 
+                                <SidebarMenuSub> 
+                                  {item.subItems.map((sub) => ( 
+                                    <SidebarMenuSubItem key={sub.title}> 
+                                      <SidebarMenuSubButton asChild> 
+                                        <Link href={sub.href}><sub.icon className="h-4 w-4 mr-2 stroke-current" />{sub.title}</Link> 
+                                      </SidebarMenuSubButton> 
+                                    </SidebarMenuSubItem> 
+                                  ))} 
+                                </SidebarMenuSub> 
+                              </AccordionContent> 
+                            </AccordionItem> 
+                          </Accordion> 
+                        ) : ( 
+                          <SidebarMenuButton asChild className="py-2 text-sm"> {/* Demo-style padding/text size */} 
+                            <Link href={item.href}><item.icon className="h-4 w-4 mr-2 stroke-current" />{item.title}</Link> 
+                          </SidebarMenuButton> 
+                        )} 
+                      </SidebarMenuItem> 
+                    ))} 
+                  </SidebarMenu> 
+                </SidebarGroupContent> 
+              </SidebarGroup> 
+            </SidebarContent> 
+            <SidebarFooter className="p-4 border-t"> {/* Demo-style border-top */} 
+              <form action={signOutAction}> 
+                <Button variant="ghost" type="submit" className="w-full justify-start">Logout</Button> 
+              </form> 
+            </SidebarFooter> 
+          </Sidebar> 
+          <div className="flex flex-1 flex-col min-h-screen"> {/* New: Wrapper for header + main (demo structure for fixed header) */} 
+            <DashboardHeader role={role} xp={xp} /> {/* New: Extracted header (passes role/xp; matches demo with search/user) */} 
+            <main className="flex flex-1 flex-col p-4 lg:p-6 bg-background"> {/* Updated: Removed lg:ml-64 (SidebarInset handles); added lg:p-6 for demo spacing */} 
+              {children} 
             </main> 
           </div> 
         </SidebarProvider> 
