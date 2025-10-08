@@ -1,298 +1,232 @@
-// src/app/dashboard/page.tsx - Fixed dashboard with proper card rendering
-import { createServerClient } from '@supabase/ssr';
+// src/app/layout.tsx - Fixed with proper SheetTitle for accessibility
+import '@/styles/global.css';
 import {
-  PhoneIcon,
-  StarIcon,
-  TargetIcon,
-  TrendingUpIcon,
-  TrophyIcon,
-  UsersIcon,
+  Award,
+  Building,
+  ChevronDown,
+  Database as DatabaseIcon,
+  FileText,
+  Home,
+  LogOut,
+  Menu,
+  Phone,
+  PhoneCall,
+  Settings,
+  ShoppingBag,
+  Users,
 } from 'lucide-react';
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import prisma from '@/lib/prisma';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { signOutAction } from '@/lib/actions';
+import { createSupabaseServerClient } from '@/lib/supabaseServer';
 
-async function getProfileData(userId: string) {
-  const profile = await prisma.profile.findUnique({
-    where: { id: userId },
-  });
-  return profile;
-}
+export const metadata: Metadata = {
+  title: 'Wraelen HQ',
+  description: 'Gamified CRM for Wholesaling',
+};
 
-async function getLeaderboardData() {
-  const leaderboard = await prisma.profile.findMany({
-    orderBy: { points: 'desc' },
-    take: 5,
-    select: {
-      id: true,
-      points: true,
-      badges: true,
-      role: true,
-    },
-  });
-  return leaderboard || [];
-}
+const navItems = [
+  { title: 'Home', href: '/dashboard', icon: Home },
+  { title: 'Extract', href: '/extract', icon: FileText },
+  { title: 'Dialer', href: '/dialer', icon: Phone },
+  { title: 'Achievement Gallery', href: '/achievements', icon: Award },
+  { title: 'Shop', href: '/shop', icon: ShoppingBag },
+  { title: 'Settings', href: '/settings', icon: Settings },
+];
 
-async function getActiveQuests() {
-  const quests = await prisma.quest.findMany({
-    where: { active: true },
-    take: 3,
-  });
-  return quests || [];
-}
+const dataItems = [
+  { title: 'Leads', href: '/data/leads', icon: Users },
+  { title: 'Properties', href: '/data/properties', icon: Building },
+  { title: 'Call Metrics', href: '/data/calls', icon: PhoneCall },
+];
 
-async function getStats(userId: string) {
-  const leadCount = await prisma.leads.count({
-    where: { assigned_to: userId },
-  });
+function DesktopNav({ user }: { user: any }) {
+  return (
+    <aside className="hidden md:flex fixed left-0 top-0 z-40 h-screen w-64 flex-col border-r bg-background">
+      <div className="flex h-16 items-center border-b px-6">
+        <Link href="/dashboard" className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00A0E9]">
+            <Award className="h-4 w-4 text-white" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold">Wraelen HQ</span>
+            <span className="text-xs text-muted-foreground">Gamified CRM</span>
+          </div>
+        </Link>
+      </div>
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const callCount = await prisma.calls.count({
-    where: {
-      caller_id: userId,
-      created_at: { gte: today },
-    },
-  });
+      <nav className="flex-1 overflow-y-auto p-4">
+        <div className="mb-2 px-3 text-xs font-semibold uppercase text-muted-foreground">
+          Platform
+        </div>
+        <div className="space-y-1">
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-all hover:bg-accent"
+            >
+              <item.icon className="h-4 w-4" />
+              {item.title}
+            </Link>
+          ))}
 
-  const conversionRate = leadCount
-    ? ((callCount || 0) / leadCount * 100).toFixed(1)
-    : '0.0';
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="w-full justify-start px-3 py-2 h-auto font-normal hover:bg-accent"
+              >
+                <DatabaseIcon className="h-4 w-4 mr-3" />
+                Data
+                <ChevronDown className="ml-auto h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              {dataItems.map((item) => (
+                <DropdownMenuItem key={item.href} asChild>
+                  <Link href={item.href} className="flex items-center gap-3">
+                    <item.icon className="h-4 w-4" />
+                    {item.title}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </nav>
 
-  return {
-    leadCount: leadCount || 0,
-    callCount: callCount || 0,
-    conversionRate,
-  };
-}
-
-export default async function DashboardPage() {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
-      },
-    }
+      <div className="border-t p-4">
+        <div className="mb-2 flex items-center gap-3 rounded-lg px-3 py-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00A0E9] text-white">
+            <span className="text-xs font-semibold">
+              {user?.email?.charAt(0).toUpperCase() || 'U'}
+            </span>
+          </div>
+          <div className="flex flex-col overflow-hidden">
+            <span className="text-sm font-semibold truncate">
+              {user?.email || 'User'}
+            </span>
+            <span className="text-xs text-muted-foreground">Sales Rep</span>
+          </div>
+        </div>
+        <form action={signOutAction}>
+          <Button variant="ghost" type="submit" className="w-full justify-start">
+            <LogOut className="h-4 w-4 mr-3" />
+            Sign Out
+          </Button>
+        </form>
+      </div>
+    </aside>
   );
+}
 
+function MobileNav({ user }: { user: any }) {
+  return (
+    <header className="sticky top-0 z-50 flex h-14 items-center gap-4 border-b bg-background px-4 md:hidden">
+      <Sheet>
+        <SheetTrigger asChild>
+          <Button variant="outline" size="icon" className="shrink-0 md:hidden">
+            <Menu className="h-5 w-5" />
+            <span className="sr-only">Toggle navigation menu</span>
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="left" className="flex flex-col">
+          <SheetTitle>
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00A0E9]">
+                <Award className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-sm font-semibold">Wraelen HQ</span>
+            </Link>
+          </SheetTitle>
+
+          <nav className="grid gap-2 text-lg font-medium mt-4">
+            {navItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-4 px-2.5 py-2 text-muted-foreground hover:text-foreground"
+              >
+                <item.icon className="h-5 w-5" />
+                {item.title}
+              </Link>
+            ))}
+
+            <div className="my-2 border-t" />
+            <div className="px-2.5 py-1 text-xs font-semibold uppercase text-muted-foreground">
+              Data
+            </div>
+            {dataItems.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="flex items-center gap-4 px-2.5 py-2 text-muted-foreground hover:text-foreground"
+              >
+                <item.icon className="h-5 w-5" />
+                {item.title}
+              </Link>
+            ))}
+          </nav>
+
+          <div className="mt-auto border-t pt-4">
+            <form action={signOutAction}>
+              <Button variant="ghost" type="submit" className="w-full justify-start">
+                <LogOut className="h-4 w-4 mr-3" />
+                Sign Out
+              </Button>
+            </form>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <div className="flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#00A0E9]">
+          <Award className="h-4 w-4 text-white" />
+        </div>
+        <span className="text-sm font-semibold">Wraelen HQ</span>
+      </div>
+    </header>
+  );
+}
+
+export default async function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect('/auth/signin');
-  }
-
-  const [profile, leaderboard, quests, stats] = await Promise.all([
-    getProfileData(user.id),
-    getLeaderboardData(),
-    getActiveQuests(),
-    getStats(user.id),
-  ]);
-
   return (
-    <>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Points</CardTitle>
-            <TrophyIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-[#00A0E9]">
-              {profile?.points || 0}
+    <html lang="en" className="dark">
+      <body className="antialiased font-mono">
+        {user ? (
+          <>
+            <DesktopNav user={user} />
+            <div className="flex flex-col md:pl-64">
+              <MobileNav user={user} />
+              <main className="flex-1 space-y-4 p-4 md:p-8 pt-6">
+                {children}
+              </main>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Level {Math.floor((profile?.points || 0) / 100) + 1}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Leads</CardTitle>
-            <UsersIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.leadCount}</div>
-            <p className="text-xs text-muted-foreground">
-              +{Math.floor(stats.leadCount * 0.12)} from last week
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Calls Today</CardTitle>
-            <PhoneIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.callCount}</div>
-            <p className="text-xs text-muted-foreground">
-              {stats.conversionRate}% conversion rate
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
-          <CardHeader>
-            <CardTitle>Active Quests</CardTitle>
-            <CardDescription>
-              Complete quests to earn points and unlock badges
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pl-2">
-            <div className="space-y-4">
-              {quests.length > 0 ? (
-                quests.map((quest: any) => (
-                  <div
-                    key={quest.id}
-                    className="flex items-center space-x-4 rounded-md border p-4"
-                  >
-                    <TargetIcon className="h-6 w-6 text-[#00A0E9]" />
-                    <div className="flex-1 space-y-1">
-                      <p className="text-sm font-medium leading-none">
-                        {quest.title}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {quest.description}
-                      </p>
-                      <p className="text-xs text-[#00A0E9]">
-                        Reward: {quest.points} points
-                      </p>
-                    </div>
-                    <div className="ml-auto font-medium">
-                      <span className="text-yellow-500">In Progress</span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  No active quests. Check back soon!
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="col-span-3">
-          <CardHeader>
-            <CardTitle>Leaderboard</CardTitle>
-            <CardDescription>Top performers this month</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {leaderboard.map((player: any, index: number) => (
-                <div key={player.id} className="flex items-center">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted mr-3">
-                    {index === 0 && (
-                      <TrophyIcon className="h-4 w-4 text-yellow-500" />
-                    )}
-                    {index === 1 && (
-                      <StarIcon className="h-4 w-4 text-gray-400" />
-                    )}
-                    {index === 2 && (
-                      <StarIcon className="h-4 w-4 text-orange-600" />
-                    )}
-                    {index > 2 && <span className="text-sm">{index + 1}</span>}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium leading-none">
-                      {player.id === user.id ? 'You' : `Player ${index + 1}`}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {Array.isArray(player.badges) ? player.badges.length : 0} badges
-                    </p>
-                  </div>
-                  <div className="ml-auto font-medium text-[#00A0E9]">
-                    {player.points}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Badges Earned</CardTitle>
-            <StarIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {Array.isArray(profile?.badges) ? profile.badges.length : 0}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {10 - (Array.isArray(profile?.badges) ? profile.badges.length : 0)} more to unlock
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              Current Streak
-            </CardTitle>
-            <TrendingUpIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">7 days</div>
-            <p className="text-xs text-muted-foreground">Keep it up!</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Next Reward</CardTitle>
-            <TrophyIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {100 - ((profile?.points || 0) % 100)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              points to next level
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Role</CardTitle>
-            <UsersIcon className="h-4 w-4 text-[#00A0E9]" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold capitalize">
-              {profile?.role || 'Sales Rep'}
-            </div>
-            <p className="text-xs text-muted-foreground">Current rank</p>
-          </CardContent>
-        </Card>
-      </div>
-    </>
+          </>
+        ) : (
+          <main className="flex flex-1 flex-col">
+            {children}
+          </main>
+        )}
+      </body>
+    </html>
   );
 }

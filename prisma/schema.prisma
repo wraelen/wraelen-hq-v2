@@ -1,16 +1,144 @@
-// prisma/schema.prisma – Full DB schema for Wraelen HQ (Supabase/Postgres backend; best practice: Normalized with FKs for merges, enums for safety, jsonb for flexibility – scales for gamified quests/leaderboards; push with `pnpm prisma db push`)
-// Logic: Builds on your current schema (keeps Profile with user_id/role/points/badges, Quest basics) + adds core (properties/leads/calls) for extraction/merges + supporting (junctions/view) for game mechanics. Use UUIDs for IDs, auto timestamps. Add RLS in Supabase dashboard (e.g., reps own assigned_to rows).
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")  // Kept: References .env var – fixes errors; keeps creds secure
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// Enum Definitions (no-brainer for type safety – prevents invalid data; expand as needed; added from your role string for consistency)
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model properties {
+  id                String        @id @default(uuid()) @db.Uuid
+  address           String
+  city              String
+  state             String
+  zip_code          String
+  property_type     PropertyType?
+  bedrooms          Int?
+  bathrooms         Float?
+  square_feet       Int?
+  year_built        Int?
+  avm               Float?
+  distress_signals  Json?
+  owner_occupied    Boolean?
+  notes             String?
+  metadata          Json?
+  address_hash      String        @unique
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+  equity            Float?
+  loan_to_value     Float?
+  remaining_balance Float?
+  open_loans        Int?
+  leads             leads[]
+
+  @@index([address_hash])
+}
+
+model leads {
+  id                 String      @id @default(uuid()) @db.Uuid
+  properties_id      String      @db.Uuid
+  lead_type          LeadType?
+  first_name         String?
+  last_name          String?
+  email              String?
+  phone              String?
+  source             LeadSource?
+  status             LeadStatus  @default(new)
+  notes              String?
+  assigned_to        String?     @db.Uuid
+  metadata           Json?
+  points_earned      Int         @default(0)
+  created_at         DateTime    @default(now())
+  updated_at         DateTime    @updatedAt
+  realtor_first_name String?
+  realtor_last_name  String?
+  realtor_phone      String?
+  calls              calls[]
+  assigned_profile   profile?    @relation(fields: [assigned_to], references: [id])
+  properties         properties  @relation(fields: [properties_id], references: [id], onDelete: Cascade)
+
+  @@index([assigned_to, status])
+}
+
+model calls {
+  id            String        @id @default(uuid()) @db.Uuid
+  direction     CallDirection @default(outbound)
+  duration      Int?
+  outcome       CallOutcome?
+  points_earned Int           @default(0)
+  metadata      Json?
+  created_at    DateTime      @default(now())
+  updated_at    DateTime      @updatedAt
+  call_sid      String?
+  caller_id     String        @db.Uuid
+  leads_id      String        @db.Uuid
+  status        String?
+  caller        profile       @relation(fields: [caller_id], references: [id], onDelete: SetNull)
+  lead          leads         @relation(fields: [leads_id], references: [id], onDelete: Cascade)
+
+  @@index([leads_id, created_at])
+  @@index([caller_id, outcome])
+}
+
+model profile {
+  id                String              @id @db.Uuid
+  user_id           String              @unique @db.Uuid
+  role              UserRole            @default(novice)
+  points            Int                 @default(0)
+  badges            String[]            @default([])
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+  quests            Quest[]
+  calls             calls[]
+  leads             leads[]
+  quest_completions quest_completions[]
+
+  @@index([user_id])
+}
+
+model Quest {
+  id          String              @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  points      Int
+  criteria    Json?
+  type        QuestType
+  active      Boolean             @default(true)
+  profile_id  String?             @db.Uuid
+  created_at  DateTime            @default(now())
+  updated_at  DateTime            @updatedAt
+  profile     profile?            @relation(fields: [profile_id], references: [id])
+  completions quest_completions[]
+
+  @@index([type, active])
+}
+
+model quest_completions {
+  id           String   @id @default(uuid()) @db.Uuid
+  quest_id     String   @db.Uuid
+  profile_id   String   @db.Uuid
+  completed_at DateTime @default(now())
+  evidence     Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  profile      profile  @relation(fields: [profile_id], references: [id], onDelete: Cascade)
+  quest        Quest    @relation(fields: [quest_id], references: [id], onDelete: Cascade)
+
+  @@unique([quest_id, profile_id])
+  @@index([profile_id, completed_at])
+}
+
+model badges {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  description  String
+  icon_url     String?
+  requirements Json?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+}
+
 enum PropertyType {
   single_family
   multi_family
@@ -35,8 +163,8 @@ enum LeadStatus {
   appointment_set
   contract_signed
   closed
-  disqualified  // Suggestion: Added for wholesaling nuance (e.g., bad lead)
-  follow_up     // Suggestion: Added for ongoing nurture quests
+  disqualified
+  follow_up
   other
 }
 
@@ -44,7 +172,7 @@ enum LeadSource {
   scrape
   referral
   other
-  zillow_api    // Suggestion: Specific for extraction tracking/points
+  zillow_api
   propstream_import
 }
 
@@ -63,11 +191,11 @@ enum CallOutcome {
 }
 
 enum UserRole {
-  novice     // Kept/renamed your default for gamification (e.g., >1000 points → apprentice)
+  novice
   apprentice
   journeyman
   master
-  elite      // Suggestion: Unlock via badges/points for "elite roles"
+  elite
   manager
   admin
 }
@@ -77,170 +205,3 @@ enum QuestType {
   weekly
   one_time
 }
-
-// Core Table 1: Properties (extracted details from links; merged via upsert on address_hash)
-model properties {
-  address              String                                    // Required: Full address
-  city                 String                                    // Required: City
-  state                String                                    // Required: 2-letter code
-  zip_code             String                                    // Required: ZIP
-  property_type        PropertyType?                             // Enum: Type for quests
-  bedrooms             Int?                                      // Optional: Beds
-  bathrooms            Float?                                    // Optional: Baths (float for halves)
-  square_feet          Int?                                      // Optional: Sq ft
-  year_built           Int?                                      // Optional: Build year
-  avm                  Float?                                    // Optional: Propstream value
-  equity               Float?                                    // Optional: Internal appraisal
-  remaining_balance    Float?                                    // Optional: Internal appraisal
-  loan_to_value        Float?                                    // Optional: Internal appraisal
-  open_loans           Int?                                      // Optional: Internal appraisal
-  distress_signals     Json?                                     // Jsonb: { pre_foreclosure: true, ... }
-  owner_occupied       Boolean?                                  // Optional: Owner lives there?
-  notes                String?                                   // Optional: Freeform notes
-  address_hash         String       @unique                      // Hash for deduping (e.g., SHA256 of address+city+state+zip)
-  metadata             Json?                                     // Jsonb: Extras like equity/mortgage for creative financing
-  created_at           DateTime     @default(now())
-  updated_at           DateTime     @updatedAt
-  id                   String       @id @default(uuid()) @db.Uuid  // PK: Auto UUID
-  
-  leads                leads[]                                   // One-to-many: Properties to leads
-
-  @@index([address_hash])  // For fast upserts/merges
-}
-
-// Core Table 2: Leads (tied to properties; gamified with points/status)
-model leads {
-  id                   String       @id @default(uuid()) @db.Uuid
-  properties_id        String       @db.Uuid                          // FK to properties
-  lead_type            LeadType?                                 // Enum
-  first_name           String?
-  last_name            String?
-  phone                String?
-  email                String?
-  status               LeadStatus    @default(new)               // Enum with default
-  source               LeadSource?                               // Enum
-  assigned_to          String?       @db.Uuid                    // FK to profile (rep assignment)
-  points_earned        Int           @default(0)                 // Gamification per lead
-  metadata             Json?                                     // Extras
-  notes                String?
-  realtor_first_name   String?                                   // Realtor enrichment (from API/manual; pushback: Separate from owner for clarity/quests)
-  realtor_last_name    String?
-  realtor_phone        String?
-  created_at           DateTime      @default(now())
-  updated_at           DateTime      @updatedAt
-
-  properties           properties    @relation(fields: [properties_id], references: [id], onDelete: Cascade)  // Cascade delete if property removed
-  assigned_profile     profile?      @relation(fields: [assigned_to], references: [id], onDelete: SetNull)   // Loose FK for reps
-  calls                calls[]                                   // One-to-many: Leads to calls
-
-  @@index([assigned_to, status])  // For dialer queries (e.g., assigned new leads)
-}
-
-// Core Table 3: Calls (logs from Twilio; metrics for quests/leaderboards)
-model calls {
-  id                   String        @id @default(uuid()) @db.Uuid
-  leads_id             String        @db.Uuid                    // FK to leads
-  caller_id            String        @db.Uuid                    // FK to profile (rep who called)
-  call_sid             String?                                   // Twilio SID
-  direction            CallDirection @default(outbound)          // Enum with default
-  status               String?                                   // e.g., 'initiated', 'completed'
-  duration             Int?                                      // Seconds
-  outcome              CallOutcome?                              // Enum
-  points_earned        Int           @default(0)                 // Gamify per call
-  metadata             Json?                                     // Extras like recording URL
-  created_at           DateTime      @default(now())
-  updated_at           DateTime      @updatedAt
-
-  lead                 leads         @relation(fields: [leads_id], references: [id], onDelete: Cascade)
-  caller               profile       @relation(fields: [caller_id], references: [id], onDelete: SetNull)
-
-  @@index([leads_id, created_at])  // For metrics queries
-  @@index([caller_id, outcome])    // For rep leaderboards
-}
-
-// Supporting Table 1: Profile (extends Supabase auth.users; gamification core)
-model profile {  // Singular/lowercase for consistency (pushback: Easier than plural; avoids mismatches)
-  id                   String        @id @db.Uuid                // PK: Matches Supabase user ID
-  user_id              String        @unique @db.Uuid            // FK to auth.users (1:1)
-  role                 UserRole      @default(novice)            // Enum with default
-  points               Int           @default(0)                 // Accumulate for leveling
-  badges               String[]      @default([])                // Array: Earned badge names
-  created_at           DateTime      @default(now())
-  updated_at           DateTime      @updatedAt
-
-  leads                leads[]                                   // One-to-many: Assigned leads
-  calls                calls[]                                   // One-to-many: Calls made
-  quests               Quest[]                                   // One-to-many: Owned quests (if applicable)
-  quest_completions    quest_completions[]                       // Many-to-many: Completions
-
-  @@index([user_id])  // Fast lookup by auth ID
-}
-
-// Supporting Table 2: Quests (challenges with points; types for daily/weekly)
-model Quest {  // Capitalized as per convention for models starting with uppercase letter, but Prisma is flexible
-  id                   String        @id @default(uuid()) @db.Uuid
-  title                String                                    // e.g., "Import 50 Leads"
-  description          String?                                   // Details
-  type                 QuestType                                 // Enum
-  points               Int                                       // Reward
-  criteria             Json?                                     // Jsonb: { min_imports: 50, ... }
-  active               Boolean       @default(true)              // Toggle for seasonal quests
-  profile_id           String?       @db.Uuid                    // Optional FK to creator/owner profile
-  created_at           DateTime      @default(now())
-  updated_at           DateTime      @updatedAt
-
-  profile              profile?      @relation(fields: [profile_id], references: [id], onDelete: SetNull)  // Loose relation for quest tracking
-  completions          quest_completions[]                       // One-to-many: Completions (many-to-many via junction)
-
-  @@index([type, active])  // For active quests list
-}
-
-// Supporting Table 3: Quest Completions (many-to-many junction; no-brainer for tracking without duplication)
-model quest_completions {
-  id            String     @id @default(uuid()) @db.Uuid  // PK
-  quest_id      String     @db.Uuid                        // FK: To quests (scalar)
-  profile_id    String     @db.Uuid                        // FK: To profile (scalar)
-  completed_at  DateTime   @default(now())                 // Completion time
-  evidence      Json?                                      // Jsonb: { linked_calls: ["id1"], points_awarded: 50 }
-  created_at    DateTime   @default(now())
-  updated_at    DateTime   @updatedAt
-
-  quest         Quest      @relation(fields: [quest_id], references: [id], onDelete: Cascade, onUpdate: Cascade)  // Relation: References scalar quest_id
-  profile       profile    @relation(fields: [profile_id], references: [id], onDelete: Cascade, onUpdate: Cascade)  // Relation: References scalar profile_id (fix: No duplicate field def; scalar only in indexes)
-
-  @@index([profile_id, completed_at])  // Index: References scalars only (per-rep history)
-  @@unique([quest_id, profile_id])     // Unique: References scalars only (no duplicate completions)
-}
-
-// Supporting Table 4: Badges (earnable unlocks; no-brainer for motivation/elite roles; ties to your Profile badges array)
-model badges {
-  id             String     @id @default(uuid()) @db.Uuid  // PK
-  name           String                                     // e.g., "Lead Closer"
-  description    String                                     // Details
-  icon_url       String?                                    // Display icon
-  requirements   Json?                                      // Jsonb: { min_points: 100, min_quests: 5 }
-  created_at     DateTime   @default(now())
-  updated_at     DateTime   @updatedAt
-
-  // Note: Link to profile via badges array (no direct relation needed; push back: Add if you want awarded_badges junction later)
-}
-
-// Call Metrics View (computed aggregates from calls; query in Supabase/Prisma raw – no-brainer for dashboards without storage)
-// SQL for Supabase (run in editor after tables created): 
-// CREATE VIEW call_metrics AS
-// SELECT
-//   lead_id,
-//   COUNT(id) AS total_calls,
-//   SUM(CASE WHEN direction = 'outbound' THEN 1 ELSE 0 END) AS total_outbound_calls,
-//   SUM(duration) AS total_duration,
-//   AVG(duration) AS average_duration,
-//   SUM(CASE WHEN outcome = 'connected' THEN 1 ELSE 0 END) AS total_connected_calls,
-//   SUM(CASE WHEN outcome = 'voicemail' THEN 1 ELSE 0 END) AS total_voicemails,
-//   SUM(CASE WHEN outcome = 'no_answer' THEN 1 ELSE 0 END) AS total_no_answers,
-//   MAX(created_at) AS last_call_timestamp,
-//   (SELECT outcome FROM calls c2 WHERE c2.lead_id = c.lead_id ORDER BY created_at DESC LIMIT 1) AS last_call_outcome,
-//   (SUM(CASE WHEN outcome = 'connected' THEN 1 ELSE 0 END)::float / COUNT(id)) * 100 AS call_success_rate,
-//   SUM(points_earned) AS points_earned
-// FROM calls c
-// GROUP BY lead_id;
-// Logic: Aggregates per lead (use in Prisma: await prisma.$queryRaw`SELECT * FROM call_metrics WHERE lead_id = ${leadId}`; real-time via Supabase subs on calls). If Prisma views become native, migrate here.
