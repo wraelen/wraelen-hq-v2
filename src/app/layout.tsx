@@ -1,109 +1,298 @@
-// src/app/layout.tsx – Root layout (SSR for session fetch; gamified header with role/XP – updated for async Supabase) 
-// Logic: Integrated Shadcn Sidebar (fixed left nav – always visible on desktop; rounded/shadowed container for app-like feel). Kept session/header; content wrapped in <SidebarProvider> (flex sibling). Menu structure per spec (mains + Data submenu). Icons via Lucide (Heroicons equiv). No removals – additive for navigation. 
-// Fix: Wrapped sidebar + main in <SidebarProvider> (context for useSidebar hook – fixes "must be used within SidebarProvider" error; best practice per Shadcn docs). No other changes. 
-// Update: Refactored to match Shadcn demo style – used nav items array for reusability (best practice; easy to add icons/submenus/roles), added SidebarInset for main (auto-handles padding/collapse), extracted header to DashboardHeader component (with search/user for demo match). Added stroke="currentColor" to icons (fixes visibility in custom themes). 
-// Fix for runtime error: Reformatted asChild usages to have no whitespace/newlines around the child element (prevents text nodes, ensuring single React element child for Radix Slot – common fix per docs/forums; no-brainer to avoid "React.Children.only" error without changing structure). 
-import '@/styles/global.css'; // Kept: Global styles 
-import { Award, Building, Database as DatabaseIcon, FileText, Home, Phone, PhoneCall, Settings, ShoppingBag, Users } from 'lucide-react'; 
-import Link from 'next/link';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // For Data submenu (demo-style accordion)
-import { Button } from '@/components/ui/button';
-import DashboardHeader from '@/components/ui/DashboardHeader'; // New: Extracted header component (matches demo with search/user) 
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarMenuSub, SidebarMenuSubButton, SidebarMenuSubItem, SidebarProvider } from '@/components/ui/sidebar'; // Added Sub components for non-accordion submenus if needed 
-import { signOutAction } from '@/lib/actions'; // Import server action (bound for form) 
-import prisma from '@/lib/prisma'; // Shared singleton 
-import { createSupabaseServerClient } from '@/lib/supabaseServer'; // Import async helper (fixes warnings) 
-// New: Nav items array (best practice for demo-style – reusable, easy to map with icons/sub; your menu preserved) 
-const navItems = [ 
-  { title: 'Home', href: "/dashboard", icon: Home }, 
-  { title: 'Extract', href: "/extract", icon: FileText }, 
-  { title: 'Dialer', href: "/dialer", icon: Phone }, 
-  { title: 'Achievement Gallery', href: "/achievements", icon: Award }, 
-  { title: 'Shop', href: "/shop", icon: ShoppingBag }, 
-  { 
-    title: 'Data', 
-    icon: DatabaseIcon, 
-    subItems: [ 
-      { title: 'Leads', href: "/data/leads", icon: Users }, 
-      { title: 'Properties', href: "/data/properties", icon: Building }, 
-      { title: 'Call Metrics', href: "/data/calls", icon: PhoneCall }, 
-    ], 
-  }, 
-  { title: 'Settings', href: "/settings", icon: Settings }, 
-]; 
-export default async function RootLayout({ children }: { children: React.ReactNode }) { 
-  const supabase = await createSupabaseServerClient(); 
-  const { data: { user } } = await supabase.auth.getUser(); 
-  // Fetch profile for gamification (role/points – plain data only) 
-  let role = 'guest'; 
-  let xp = 0; 
-  if (user?.id) { 
-    const profile = await prisma.profile.findUnique({ where: { id: user.id } }); 
-    role = profile?.role || 'rep'; 
-    xp = profile?.points || 0; 
-  } 
-  return ( 
-    <html lang="en"> 
-      <body className="antialiased font-mono bg-background text-foreground dark"> 
-        <SidebarProvider> 
-          <Sidebar variant="sidebar" collapsible="none" className="fixed left-0 top-0 h-full w-64 bg-card shadow-md border-r"> {/* Updated: Removed p-4 (demo uses border-r instead; cleaner) */} 
-            <SidebarHeader className="h-16 flex items-center px-4 border-b"> {/* Demo-style fixed height/border */} 
-              <div className="flex items-center gap-2 font-semibold"> 
-                <div className="h-6 w-6 rounded bg-primary" /> {/* Smaller logo for demo match */} 
-                <span>Wraelen HQ</span> 
-              </div> 
-            </SidebarHeader> 
-            <SidebarContent> 
-              <SidebarGroup> 
-                <SidebarGroupContent> 
-                  <SidebarMenu> 
-                    {navItems.map((item) => ( 
-                      <SidebarMenuItem key={item.title}> 
-                        {item.subItems ? ( 
-                          <Accordion type="single" collapsible defaultValue={item.title}> 
-                            <AccordionItem value={item.title} className="border-none"> 
-                              <AccordionTrigger className="py-2 text-sm hover:bg-accent hover:text-accent-foreground"> 
-                                <item.icon className="h-4 w-4 mr-2 stroke-current" /> 
-                                {item.title} 
-                              </AccordionTrigger> 
-                              <AccordionContent className="p-0"> 
-                                <SidebarMenuSub> 
-                                  {item.subItems.map((sub) => ( 
-                                    <SidebarMenuSubItem key={sub.title}> 
-                                      <SidebarMenuSubButton asChild> 
-                                        <Link href={sub.href}><sub.icon className="h-4 w-4 mr-2 stroke-current" />{sub.title}</Link> 
-                                      </SidebarMenuSubButton> 
-                                    </SidebarMenuSubItem> 
-                                  ))} 
-                                </SidebarMenuSub> 
-                              </AccordionContent> 
-                            </AccordionItem> 
-                          </Accordion> 
-                        ) : ( 
-                          <SidebarMenuButton asChild className="py-2 text-sm"> {/* Demo-style padding/text size */} 
-                            <Link href={item.href}><item.icon className="h-4 w-4 mr-2 stroke-current" />{item.title}</Link> 
-                          </SidebarMenuButton> 
-                        )} 
-                      </SidebarMenuItem> 
-                    ))} 
-                  </SidebarMenu> 
-                </SidebarGroupContent> 
-              </SidebarGroup> 
-            </SidebarContent> 
-            <SidebarFooter className="p-4 border-t"> {/* Demo-style border-top */} 
-              <form action={signOutAction}> 
-                <Button variant="ghost" type="submit" className="w-full justify-start">Logout</Button> 
-              </form> 
-            </SidebarFooter> 
-          </Sidebar> 
-          <div className="flex flex-1 flex-col min-h-screen"> {/* New: Wrapper for header + main (demo structure for fixed header) */} 
-            <DashboardHeader role={role} xp={xp} /> {/* New: Extracted header (passes role/xp; matches demo with search/user) */} 
-            <main className="flex flex-1 flex-col p-4 lg:p-6 bg-background"> {/* Updated: Removed lg:ml-64 (SidebarInset handles); added lg:p-6 for demo spacing */} 
-              {children} 
-            </main> 
-          </div> 
-        </SidebarProvider> 
-      </body> 
-    </html> 
-  ); 
+// src/app/dashboard/page.tsx - Fixed dashboard with proper card rendering
+import { createServerClient } from '@supabase/ssr';
+import {
+  PhoneIcon,
+  StarIcon,
+  TargetIcon,
+  TrendingUpIcon,
+  TrophyIcon,
+  UsersIcon,
+} from 'lucide-react';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import prisma from '@/lib/prisma';
+
+async function getProfileData(userId: string) {
+  const profile = await prisma.profile.findUnique({
+    where: { id: userId },
+  });
+  return profile;
+}
+
+async function getLeaderboardData() {
+  const leaderboard = await prisma.profile.findMany({
+    orderBy: { points: 'desc' },
+    take: 5,
+    select: {
+      id: true,
+      points: true,
+      badges: true,
+      role: true,
+    },
+  });
+  return leaderboard || [];
+}
+
+async function getActiveQuests() {
+  const quests = await prisma.quest.findMany({
+    where: { active: true },
+    take: 3,
+  });
+  return quests || [];
+}
+
+async function getStats(userId: string) {
+  const leadCount = await prisma.leads.count({
+    where: { assigned_to: userId },
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const callCount = await prisma.calls.count({
+    where: {
+      caller_id: userId,
+      created_at: { gte: today },
+    },
+  });
+
+  const conversionRate = leadCount
+    ? ((callCount || 0) / leadCount * 100).toFixed(1)
+    : '0.0';
+
+  return {
+    leadCount: leadCount || 0,
+    callCount: callCount || 0,
+    conversionRate,
+  };
+}
+
+export default async function DashboardPage() {
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {}
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect('/auth/signin');
+  }
+
+  const [profile, leaderboard, quests, stats] = await Promise.all([
+    getProfileData(user.id),
+    getLeaderboardData(),
+    getActiveQuests(),
+    getStats(user.id),
+  ]);
+
+  return (
+    <>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Points</CardTitle>
+            <TrophyIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-[#00A0E9]">
+              {profile?.points || 0}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Level {Math.floor((profile?.points || 0) / 100) + 1}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Leads</CardTitle>
+            <UsersIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.leadCount}</div>
+            <p className="text-xs text-muted-foreground">
+              +{Math.floor(stats.leadCount * 0.12)} from last week
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Calls Today</CardTitle>
+            <PhoneIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.callCount}</div>
+            <p className="text-xs text-muted-foreground">
+              {stats.conversionRate}% conversion rate
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        <Card className="col-span-4">
+          <CardHeader>
+            <CardTitle>Active Quests</CardTitle>
+            <CardDescription>
+              Complete quests to earn points and unlock badges
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pl-2">
+            <div className="space-y-4">
+              {quests.length > 0 ? (
+                quests.map((quest: any) => (
+                  <div
+                    key={quest.id}
+                    className="flex items-center space-x-4 rounded-md border p-4"
+                  >
+                    <TargetIcon className="h-6 w-6 text-[#00A0E9]" />
+                    <div className="flex-1 space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {quest.title}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {quest.description}
+                      </p>
+                      <p className="text-xs text-[#00A0E9]">
+                        Reward: {quest.points} points
+                      </p>
+                    </div>
+                    <div className="ml-auto font-medium">
+                      <span className="text-yellow-500">In Progress</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  No active quests. Check back soon!
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-3">
+          <CardHeader>
+            <CardTitle>Leaderboard</CardTitle>
+            <CardDescription>Top performers this month</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {leaderboard.map((player: any, index: number) => (
+                <div key={player.id} className="flex items-center">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted mr-3">
+                    {index === 0 && (
+                      <TrophyIcon className="h-4 w-4 text-yellow-500" />
+                    )}
+                    {index === 1 && (
+                      <StarIcon className="h-4 w-4 text-gray-400" />
+                    )}
+                    {index === 2 && (
+                      <StarIcon className="h-4 w-4 text-orange-600" />
+                    )}
+                    {index > 2 && <span className="text-sm">{index + 1}</span>}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium leading-none">
+                      {player.id === user.id ? 'You' : `Player ${index + 1}`}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {Array.isArray(player.badges) ? player.badges.length : 0} badges
+                    </p>
+                  </div>
+                  <div className="ml-auto font-medium text-[#00A0E9]">
+                    {player.points}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Badges Earned</CardTitle>
+            <StarIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {Array.isArray(profile?.badges) ? profile.badges.length : 0}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {10 - (Array.isArray(profile?.badges) ? profile.badges.length : 0)} more to unlock
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">
+              Current Streak
+            </CardTitle>
+            <TrendingUpIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">7 days</div>
+            <p className="text-xs text-muted-foreground">Keep it up!</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Next Reward</CardTitle>
+            <TrophyIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {100 - ((profile?.points || 0) % 100)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              points to next level
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Role</CardTitle>
+            <UsersIcon className="h-4 w-4 text-[#00A0E9]" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold capitalize">
+              {profile?.role || 'Sales Rep'}
+            </div>
+            <p className="text-xs text-muted-foreground">Current rank</p>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
 }
