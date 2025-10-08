@@ -736,7 +736,7 @@ const __TURBOPACK__default__export__ = prisma;
 "use strict";
 
 // src/app/layout.tsx – Root layout (SSR for session fetch; gamified header with role/XP – updated for async Supabase)
-// Logic: Added globals.css import (fixes unstyled pages – no-brainer; must be here for global apply). Added 'dark' class to html (enforces theme without queries). Kept existing code; just enhanced header with Shadcn Button for logout (styled now).
+// Logic: Added global.css import (fixes unstyled pages – no-brainer; must be here for global apply). Added 'dark' class to html (enforces theme without queries). Kept existing code; just enhanced header with Shadcn Button for logout (styled now).
 // Fix: Removed whitespace/newline between <html> and <body> (prevents hydration error from text node as <html> child – best practice for JSX roots; HTML forbids text/whitespace directly under <html>). No removals – just adjacency.
 __turbopack_context__.s([
     "default",
