@@ -1,4 +1,4 @@
-// src/app/layout.tsx - Fixed with proper SheetTitle for accessibility
+// src/app/layout.tsx - Auth re-enabled with proper error handling
 import '@/styles/global.css';
 import {
   Award,
@@ -203,10 +203,16 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Fetch user with error handling
+  let user = null;
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user: fetchedUser } } = await supabase.auth.getUser();
+    user = fetchedUser;
+  } catch (error) {
+    console.error('Layout auth error:', error);
+    // User stays null, middleware will redirect
+  }
 
   return (
     <html lang="en" className="dark">

@@ -1,29 +1,34 @@
-// src/middleware.ts – Fixed to prevent rate limit spam
+// src/middleware.ts - Production auth with proper rate limiting
 import { createServerClient } from '@supabase/ssr';
 import { type NextRequest, NextResponse } from 'next/server';
 
-// Cache to prevent repeated auth checks within short timeframes
+// Simple in-memory cache (resets on server restart - fine for dev)
 const authCache = new Map<string, { user: any; timestamp: number }>();
-const CACHE_DURATION = 5000; // 5 seconds cache
+const CACHE_TTL = 10000; // 10 seconds cache
+const MAX_CACHE_SIZE = 1000; // Prevent memory leaks
 
 export async function middleware(req: NextRequest) {
-  // Skip middleware for static files and API routes
+  // Skip middleware for static assets and auth pages
+  const { pathname } = req.nextUrl;
+  
   if (
-    req.nextUrl.pathname.startsWith('/_next') ||
-    req.nextUrl.pathname.startsWith('/api') ||
-    req.nextUrl.pathname.includes('.')
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api/health') ||
+    pathname.startsWith('/auth') ||
+    pathname.includes('.') // Static files
   ) {
     return NextResponse.next();
   }
 
   // Env guard
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    console.error('Supabase env vars missing');
+    console.error('Missing Supabase env vars');
     return NextResponse.next();
   }
 
-  let response = NextResponse.next();
+  const response = NextResponse.next();
   
+  // Create Supabase client
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -39,34 +44,38 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // Check cache first
-  const sessionToken = req.cookies.get('sb-access-token')?.value;
-  const cached = sessionToken ? authCache.get(sessionToken) : null;
+  // Check cache first (reduces Supabase calls)
+  const accessToken = req.cookies.get('sb-access-token')?.value;
+  const cacheKey = accessToken || 'anonymous';
+  const cached = authCache.get(cacheKey);
   
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    // Use cached user
-    if (!cached.user && !req.nextUrl.pathname.startsWith('/auth')) {
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    // Use cached result
+    if (!cached.user) {
       return NextResponse.redirect(new URL('/auth/signin', req.url));
     }
     return response;
   }
 
+  // Fetch fresh auth state
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error } = await supabase.auth.getUser();
 
-    // Update cache
-    if (sessionToken) {
-      authCache.set(sessionToken, { user, timestamp: Date.now() });
+    // Update cache (with size limit)
+    if (authCache.size > MAX_CACHE_SIZE) {
+      authCache.clear(); // Simple eviction
     }
+    authCache.set(cacheKey, { user, timestamp: Date.now() });
 
-    // Redirect logic
-    if (!user && !req.nextUrl.pathname.startsWith('/auth')) {
+    // Redirect unauthenticated users
+    if (!user || error) {
       return NextResponse.redirect(new URL('/auth/signin', req.url));
     }
+
   } catch (error) {
-    console.error('Auth error in middleware:', error);
-    // On error, allow through to avoid blocking
-    return response;
+    console.error('Middleware auth error:', error);
+    // On error, redirect to signin (safer than allowing through)
+    return NextResponse.redirect(new URL('/auth/signin', req.url));
   }
 
   return response;
@@ -74,6 +83,14 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\..*|api|auth/signin|auth/signup).*)',
+    /*
+     * Match all request paths except:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public folder
+     * - auth pages
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\..*|auth).*)',
   ],
 };

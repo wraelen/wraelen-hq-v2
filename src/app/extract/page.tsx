@@ -1,230 +1,385 @@
-// src/app/extract/page.tsx – Client page for Propstream import (with progress bar, polling, always-on leads table; gamified UX – see imports progress like quest loading, review leads for dialing; best practice: Polling for status unblocks without complexity; realtime sub for table)
-// New: Switched to @tanstack/react-table with Shadcn DataTable wrapper (replaces old Shadcn Table – headless, React-native; features like sort/pagination without jQuery). Aligned columns to properties schema (accessorKey matches DB fields). Fetch/sub updated for properties (per request; all schema cols). Assumes `npx shadcn-ui add data-table` ran (adds components/ui/data-table.tsx – if not, run it; provides full features). No removals – old table commented.
-'use client'; // Logic: Client for interactivity (dropzone, form state, polling, realtime sub)
-import { zodResolver } from '@hookform/resolvers/zod';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'; // For realtime client sub
-import { ColumnDef } from '@tanstack/react-table';
-import { useEffect, useState } from 'react';
-import { useDropzone } from 'react-dropzone'; // Logic: Drag-drop (gamified UX – better than plain input)
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { Button } from '@/components/ui/button'; // Import Button component
-import { Progress } from '@/components/ui/progress'; // Shadcn for import progress
-// import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'; // Comment out old plain Table (replaced with DataTable – easy revert)
-import { enrichLeadRealtor, importDataAction, pollImportStatus } from '@/lib/actions'; // Updated actions (add poll below)
-import { DataTable } from '../../components/ui/data-table.tsx'; // Adjusted import path to match relative location
-// New: Tanstack types for columns (install: pnpm add @tanstack/react-table)
+// src/app/extract/page.tsx - Full CSV import with agent scraping
+'use client';
 
-const importSchema = z.object({ source: z.literal('propstream') });
-type FormData = z.infer<typeof importSchema>;
+import { FileUp, Loader2, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { getImportHistory, importCSVAction, undoImportAction } from '@/lib/actions';
 
-// New: Properties type from schema (for type-safe columns; expand if Prisma types gen available)
-type Property = {
+type ImportBatch = {
   id: string;
-  address: string;
-  city: string;
-  state: string;
-  zip_code: string;
-  property_type: string | null;
-  bedrooms: number | null;
-  bathrooms: number | null;
-  square_feet: number | null;
-  year_built: number | null;
-  avm: number | null;
-  equity: number | null;
-  remaining_balance: number | null;
-  loan_to_value: number | null;
-  open_loans: number | null;
-  owner_occupied: boolean | null;
-  notes: string | null;
-  created_at: string; // Date as string for display
-  // Add more schema fields (e.g., metadata: object – render as JSON.stringify in cell)
+  filename: string | null;
+  total_rows: number;
+  successful_rows: number;
+  failed_rows: number;
+  points_earned: number;
+  created_at: string;
 };
 
 export default function ExtractPage() {
-  const [importResults, setImportResults] = useState<any[]>([]); // Logic: Import outcomes
+  const [file, setFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null); // Logic: Hold uploaded file
-  const [properties, setProperties] = useState<Property[]>([]); // Updated: State for properties (fetched/realtime – aligned to schema; was leads)
-  const [importProgress, setImportProgress] = useState(0); // Logic: Progress % (0-100)
-  const [importJobId, setImportJobId] = useState<string | null>(null); // Logic: Job ID for polling
-  const [enrichRealtors, setEnrichRealtors] = useState(false); // New: Checkbox state for optional enrichment (default false – cost-aware)
-  const { handleSubmit, formState: { isSubmitting } } = useForm<FormData>({
-    resolver: zodResolver(importSchema),
-    defaultValues: { source: 'propstream' },
+  const [showQuestPopup, setShowQuestPopup] = useState(false);
+  const [questCompleted, setQuestCompleted] = useState<string | null>(null);
+  const [history, setHistory] = useState<ImportBatch[]>([]);
+  const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    const data = await getImportHistory();
+    setHistory(data);
+  };
+
+  const onDrop = useCallback((acceptedFiles: File[]) => {
+    if (acceptedFiles.length > 0) {
+      setFile(acceptedFiles[0]);
+      setError(null);
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'text/csv': ['.csv'] },
+    maxFiles: 1,
+    maxSize: 10 * 1024 * 1024, // 10MB
   });
 
-  const supabase = createClientComponentClient(); // Logic: Client Supabase for realtime subs/fetch (secure with RLS)
+  const handleImport = async () => {
+    if (!file) return;
 
-  // Fetch initial properties + sub for realtime (always show – gamified review; pushback: Pagination for >100 items later via tanstack)
-  // New: Fetch properties (all schema fields via select('*')). Sub on properties table.
-  useEffect(() => {
-    const fetchProperties = async () => {
-      const { data: { user } } = await supabase.auth.getUser(); // Secure client auth
-      if (user?.id) {
-        const { data } = await supabase.from('properties').select('*').order('created_at', { ascending: false }).limit(100); // New: Fetch properties (eq filter if owned, e.g., .eq('assigned_to', user.id) if schema has it)
-        setProperties(data || []);
-      }
-    };
-
-    fetchProperties();
-
-    // Realtime sub (pushback: Efficient for gamification – live updates like MMO quest log; unsub on unmount)
-    const propertiesSub = supabase.channel('properties_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'properties' }, async (payload) => {
-      // New: For changes, refetch or update state (simple prepend for INSERT; handle UPDATE/DELETE similarly if needed)
-      if (payload.eventType === 'INSERT') {
-        setProperties((prev) => [payload.new, ...prev.slice(0, 99)]); // Prepend new
-      } else if (payload.eventType === 'UPDATE') {
-        setProperties((prev) => prev.map((p) => p.id === payload.new.id ? payload.new : p));
-      } else if (payload.eventType === 'DELETE') {
-        setProperties((prev) => prev.filter((p) => p.id !== payload.old.id));
-      }
-    }).subscribe();
-
-    return () => { supabase.removeChannel(propertiesSub); }; // Cleanup
-  }, [supabase]);
-
-  // Polling for import progress (if jobId set; interval 1s, stop on 100% or error)
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (importJobId) {
-      interval = setInterval(async () => {
-        const status = await pollImportStatus(importJobId); // Logic: New action (below)
-        setImportProgress(status.progress);
-        setImportResults(status.results || []);
-        if (status.error) setError(status.error);
-        if (status.progress >= 100 || status.error) {
-          clearInterval(interval);
-          setImportJobId(null); // Reset
-        }
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [importJobId]);
-
-  const onSubmit = async () => {
+    setImporting(true);
+    setProgress(0);
     setError(null);
-    setImportResults([]);
-    setImportProgress(0);
-    if (!file) {
-      setError('Upload a Propstream CSV first');
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) { // Logic: Security/perf – limit 5MB
-      setError('File too large – max 5MB');
-      return;
-    }
+    setProgressText('⚔️ Preparing import quest...');
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('source', 'propstream');
-    formData.append('enrichRealtors', enrichRealtors.toString()); // New: Pass flag to action
-    const result = await importDataAction(formData); // Logic: Now returns jobId for long-running (update action to support)
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('source', 'propstream');
 
-    if ('error' in result && result.error) {
-      setError('Import failed: ' + JSON.stringify(result.error));
-    } else if ('jobId' in result && typeof result.jobId === 'string') {
-      setImportJobId(result.jobId); // Start polling
-    } else {
-      setError('Import failed: Unexpected response from server.');
+      // Simulate RPG loading phases
+      await delay(800);
+      setProgress(5);
+      setProgressText('📜 Reading ancient CSV scrolls...');
+
+      await delay(600);
+      setProgress(10);
+      setProgressText('🔍 Seeking listing agents...');
+
+      const result = await importCSVAction(formData, (update) => {
+        setProgress(update.progress);
+        setProgressText(update.message);
+      });
+
+      if ('error' in result) {
+        setError(result.error);
+        setProgressText('❌ Quest failed!');
+      } else {
+        setProgress(100);
+        setProgressText('✨ Import quest complete!');
+        
+        // Check for quest completion
+        if (result.questCompleted) {
+          setQuestCompleted(result.questCompleted);
+          setShowQuestPopup(true);
+        }
+
+        await delay(1500);
+        setFile(null);
+        setProgress(0);
+        setProgressText('');
+        await loadHistory();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Import failed');
+      setProgressText('❌ Quest failed!');
+    } finally {
+      setImporting(false);
     }
   };
 
-  const { getRootProps, getInputProps } = useDropzone({
-    accept: { 'text/csv': ['.csv'] },
-    onDrop: (acceptedFiles) => setFile(acceptedFiles[0] || null), // Logic: Take first file
-  });
+  const handleUndo = async (batchId: string) => {
+    if (!confirm('⚠️ Undo this import? This will delete all leads and properties from this batch.')) {
+      return;
+    }
 
-  // New: Define columns for DataTable (match properties schema – accessorKey: 'db_field', header/title, cell for custom render like bool Yes/No or format numbers)
-  const columns: ColumnDef<Property>[] = [
-    { accessorKey: 'address', header: 'Address' },
-    { accessorKey: 'city', header: 'City' },
-    { accessorKey: 'state', header: 'State' },
-    { accessorKey: 'zip_code', header: 'Zip Code' },
-    { accessorKey: 'property_type', header: 'Property Type' },
-    { accessorKey: 'bedrooms', header: 'Bedrooms' },
-    { accessorKey: 'bathrooms', header: 'Bathrooms' },
-    { accessorKey: 'square_feet', header: 'Square Feet' },
-    { accessorKey: 'year_built', header: 'Year Built' },
-    { accessorKey: 'avm', header: 'AVM', cell: ({ row }) => row.original.avm ? `$${row.original.avm.toFixed(0)}` : 'N/A' }, // Custom cell (format as currency)
-    { accessorKey: 'equity', header: 'Equity', cell: ({ row }) => row.original.equity ? `$${row.original.equity.toFixed(0)}` : 'N/A' },
-    { accessorKey: 'remaining_balance', header: 'Remaining Balance', cell: ({ row }) => row.original.remaining_balance ? `$${row.original.remaining_balance.toFixed(0)}` : 'N/A' },
-    { accessorKey: 'loan_to_value', header: 'Loan to Value', cell: ({ row }) => row.original.loan_to_value ? `${row.original.loan_to_value.toFixed(2)}%` : 'N/A' },
-    { accessorKey: 'open_loans', header: 'Open Loans' },
-    { accessorKey: 'owner_occupied', header: 'Owner Occupied', cell: ({ row }) => row.original.owner_occupied ? 'Yes' : 'No' }, // Bool render
-    { accessorKey: 'notes', header: 'Notes' },
-    { accessorKey: 'created_at', header: 'Created At', cell: ({ row }) => new Date(row.original.created_at).toLocaleString() }, // Date format
-    // Add more (e.g., { id: 'actions', cell: ({ row }) => <Button>Enrich</Button> } for custom actions like realtor enrich – tie to leads if needed via relation)
-  ];
+    setDeletingBatchId(batchId);
+    try {
+      await undoImportAction(batchId);
+      await loadHistory();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Undo failed');
+    } finally {
+      setDeletingBatchId(null);
+    }
+  };
+
+  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
   return (
-    <div className="flex flex-col min-h-screen items-center bg-black text-green-400 font-mono p-8">
-      <form onSubmit={handleSubmit(onSubmit)} className="p-8 border-2 border-green-500 rounded-lg shadow-[0_0_15px_rgba(0,255,0,0.7)] bg-black/80 w-full max-w-md mb-8">
-        <h2 className="text-2xl mb-6 text-center">Import Leads Quest (Propstream CSV)</h2>
-        <div {...getRootProps()} className="w-full mb-4 p-4 bg-black border border-dashed border-green-500 text-center cursor-pointer">
-          <input {...getInputProps()} />
-          <p>{file ? file.name : 'Drag-drop CSV or click to upload'}</p>
-        </div>
-        {/* New: Checkbox for optional enrichment (UX: Warn on costs; ties to formData) */}
-        <label className="flex items-center mb-4">
-          <input type="checkbox" checked={enrichRealtors} onChange={(e) => setEnrichRealtors(e.target.checked)} className="mr-2" />
-          Auto-enrich realtor info? (May incur API costs for bulk)
-        </label>
-        <button type="submit" disabled={isSubmitting || !file} className="w-full p-2 bg-green-500 text-black hover:bg-green-600">
-          {isSubmitting ? 'Importing...' : 'Start Import'}
-        </button>
-        {importProgress > 0 && <Progress value={importProgress} className="mt-4" />} {/* Logic: Gamified progress bar */}
-        {error && <p className="text-red-500 mt-4">{error}</p>}
-        {importResults.length > 0 && (
-          <ul className="mt-4 max-h-40 overflow-y-auto">
-            {importResults.map((res, i) => (
-              <li key={i} className={res.success ? 'text-green-400' : 'text-red-500'}>
-                {res.success ? `Row ${res.row} imported (Lead ${res.leadId})` : `Error on row ${res.row}: ${res.error}`}
-              </li>
-            ))}
-          </ul>
-        )}
-      </form>
-
-      {/* Properties Table (always show – DataTable for enhanced features; realtime updates) */}
-      <div className="w-full max-w-4xl">
-        <h2 className="text-2xl mb-4">Your Current Properties (From Imports)</h2>
-        {/* Comment out old Shadcn Table (replaced with DataTable – easy revert; no removal) */}
-        {/* <Table>
-          <TableHeader><TableRow> 
-              <TableHead>Address</TableHead><TableHead>Name</TableHead><TableHead>Phone</TableHead><TableHead>Status</TableHead><TableHead>Source</TableHead><TableHead>Points Earned</TableHead><TableHead>Equity % (Creative)</TableHead><TableHead>AVM</TableHead><TableHead>Realtor First</TableHead><TableHead>Realtor Last</TableHead><TableHead>Realtor Phone</TableHead><TableHead>Actions</TableHead>
-            </TableRow></TableHeader>
-          <TableBody>
-            {leads.map((lead) => (
-              <TableRow key={lead.id}>
-                <TableCell>{lead.properties?.address || 'N/A'}</TableCell> 
-                <TableCell>{`${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'N/A'}</TableCell>
-                <TableCell>{lead.phone || 'N/A'}</TableCell>
-                <TableCell>{lead.status}</TableCell>
-                <TableCell>{lead.source}</TableCell>
-                <TableCell>{lead.points_earned}</TableCell>
-                <TableCell>{lead.properties?.equity ? `${lead.properties.equity.toFixed(2)}%` : 'N/A'}</TableCell> 
-                <TableCell>{lead.properties?.avm ? `$${lead.properties.avm.toFixed(0)}` : 'N/A'}</TableCell> 
-                <TableCell>{lead.realtor_first_name || 'N/A'}</TableCell>
-                <TableCell>{lead.realtor_last_name || 'N/A'}</TableCell>
-                <TableCell>{lead.realtor_phone || 'N/A'}</TableCell>
-                <TableCell>
-                  <Button onClick={async () => {
-                    const result = await enrichLeadRealtor(lead.id);
-                    if (result.success) {
-                      // Update local state (or rely on realtime sub)
-                      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, ...result.realtor } : l));
-                    } else {
-                      alert(result.error); // Simple error UX; use toast later
-                    }
-                  }}>Enrich Realtor</Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table> */}
-        <DataTable columns={columns} data={properties} /> {/* New: Shadcn DataTable (tanstack-based – pass columns/data; auto-handles sort/pagination/search if configured in data-table.tsx) */}
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">Extract</h2>
+        <p className="text-muted-foreground">
+          Import leads from Propstream CSV files
+        </p>
       </div>
+
+      {/* Quest Completion Popup */}
+      {showQuestPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <Card className="border-2 border-[#00A0E9] shadow-[0_0_30px_rgba(0,160,233,0.5)] max-w-md">
+            <CardHeader className="text-center">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#00A0E9] animate-pulse">
+                <Sparkles className="h-8 w-8 text-white" />
+              </div>
+              <CardTitle className="text-2xl">🎉 Quest Complete!</CardTitle>
+              <CardDescription className="text-base">
+                {questCompleted}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="text-center space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Visit the <span className="text-[#00A0E9] font-semibold">Achievement Gallery</span> to collect your reward!
+              </p>
+              <Button
+                onClick={() => {
+                  setShowQuestPopup(false);
+                  setQuestCompleted(null);
+                }}
+                className="w-full"
+              >
+                Awesome!
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Import Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Import Leads Quest</CardTitle>
+          <CardDescription>
+            Upload a Propstream CSV to extract properties and discover listing agents
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!file ? (
+            <div
+              {...getRootProps()}
+              className={`border-2 border-dashed rounded-lg p-12 text-center transition-all cursor-pointer ${
+                isDragActive
+                  ? 'border-[#00A0E9] bg-[#00A0E9]/5'
+                  : 'border-muted-foreground/25 hover:border-[#00A0E9]/50'
+              }`}
+            >
+              <input {...getInputProps()} />
+              <Upload className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-semibold mb-2">
+                {isDragActive ? 'Drop the CSV here' : 'Drag & Drop CSV Here'}
+              </h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                or click to browse files
+              </p>
+              <Button variant="outline" disabled={importing}>
+                <FileUp className="mr-2 h-4 w-4" />
+                Select File
+              </Button>
+              <p className="text-xs text-muted-foreground mt-4">
+                Maximum 10MB • .csv files only
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-4 border rounded-lg">
+                <div className="flex items-center gap-3">
+                  <FileUp className="h-5 w-5 text-[#00A0E9]" />
+                  <div>
+                    <p className="font-medium">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(file.size / 1024).toFixed(2)} KB
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setFile(null)}
+                  disabled={importing}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {importing && (
+                <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">{progressText}</p>
+                    <span className="text-sm text-[#00A0E9]">{progress}%</span>
+                  </div>
+                  <Progress value={progress} className="h-2" />
+                  <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Processing... This may take a few minutes</span>
+                  </div>
+                </div>
+              )}
+
+              {error && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <p className="text-sm text-red-500">{error}</p>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleImport}
+                  disabled={importing}
+                  className="flex-1"
+                >
+                  {importing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Importing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Start Import Quest
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setFile(null)}
+                  disabled={importing}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="p-4 bg-muted/50 rounded-lg">
+            <h4 className="text-sm font-semibold mb-2">⚔️ Quest Objectives:</h4>
+            <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
+              <li>Properties extracted with financial metrics</li>
+              <li>Owner contact information captured</li>
+              <li>Listing agents discovered via Realtor.com</li>
+              <li>Leads assigned to you automatically</li>
+              <li>+1 XP (point) per successful lead</li>
+            </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Import History */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Import History</CardTitle>
+          <CardDescription>Your previous import quests</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {history.length > 0 ? (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Filename</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Success</TableHead>
+                    <TableHead>Failed</TableHead>
+                    <TableHead>Points</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {history.map((batch) => (
+                    <TableRow key={batch.id}>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {new Date(batch.created_at).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {batch.filename || 'Unknown'}
+                      </TableCell>
+                      <TableCell>{batch.total_rows}</TableCell>
+                      <TableCell>
+                        <Badge className="bg-green-500/10 text-green-500">
+                          {batch.successful_rows}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {batch.failed_rows > 0 && (
+                          <Badge className="bg-red-500/10 text-red-500">
+                            {batch.failed_rows}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium text-[#00A0E9]">
+                        +{batch.points_earned}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleUndo(batch.id)}
+                          disabled={deletingBatchId === batch.id}
+                        >
+                          {deletingBatchId === batch.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              <FileUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p className="text-lg mb-2">No import history</p>
+              <p className="text-sm">
+                Complete your first import quest to see history here
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

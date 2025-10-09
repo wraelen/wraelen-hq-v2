@@ -139,6 +139,23 @@ model badges {
   updated_at   DateTime @updatedAt
 }
 
+model import_batches {
+  id              String   @id @default(uuid())
+  user_id         String
+  filename        String?
+  total_rows      Int
+  successful_rows Int
+  failed_rows     Int
+  points_earned   Int      @default(0)
+  lead_ids        String[] // Array of created lead IDs for undo
+  property_ids    String[] // Array of created property IDs for undo
+  errors          Json?    // Store any errors that occurred
+  created_at      DateTime @default(now())
+
+  @@index([user_id])
+  @@index([created_at])
+}
+
 enum PropertyType {
   single_family
   multi_family

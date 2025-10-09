@@ -1,29 +1,19 @@
-// src/lib/supabaseServer.ts – With request deduplication to prevent rate limits
+// src/lib/supabaseServer.ts - Clean server helper (no caching - middleware handles it)
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { Database } from '@/types/database.types';
 
-// Singleton cache to prevent multiple concurrent getUser calls
-let cachedClient: any = null;
-let cacheTimestamp = 0;
-const CACHE_TTL = 2000; // 2 seconds
-
 export async function createSupabaseServerClient() {
-  // Return cached client if still fresh
-  if (cachedClient && Date.now() - cacheTimestamp < CACHE_TTL) {
-    return cachedClient;
-  }
-
   const cookieStore = await cookies();
   
-  const client = createServerClient<Database>(
+  return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
-        detectSessionInUrl: false, // Important: prevents extra requests
+        detectSessionInUrl: false,
       },
       cookies: {
         get(name: string) {
@@ -32,24 +22,18 @@ export async function createSupabaseServerClient() {
         set(name: string, value: string, options: any) {
           try {
             cookieStore.set({ name, value, ...options });
-          } catch (error) {
-            // Silently fail - expected in some contexts
+          } catch {
+            // Expected in some server contexts
           }
         },
         remove(name: string, options: any) {
           try {
             cookieStore.set({ name, value: '', ...options });
-          } catch (error) {
-            // Silently fail
+          } catch {
+            // Expected in some server contexts
           }
         },
       },
     }
   );
-
-  // Cache the client
-  cachedClient = client;
-  cacheTimestamp = Date.now();
-
-  return client;
 }
