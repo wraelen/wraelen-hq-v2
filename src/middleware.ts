@@ -1,36 +1,79 @@
-// src/middleware.ts – Auth middleware (edge-efficient; best practice: Early env check to avoid runtime crashes in dev/prod)
+// src/middleware.ts – Fixed to prevent rate limit spam
 import { createServerClient } from '@supabase/ssr';
 import { type NextRequest, NextResponse } from 'next/server';
 
+// Cache to prevent repeated auth checks within short timeframes
+const authCache = new Map<string, { user: any; timestamp: number }>();
+const CACHE_DURATION = 5000; // 5 seconds cache
+
 export async function middleware(req: NextRequest) {
-  // Logic: Env guard (push back: Fail fast if vars missing – best for dev; fixes "required" error on hot reloads)
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    console.error('Supabase env vars missing – check .env.local');
-    return NextResponse.next();  // Or redirect to error page in prod
+  // Skip middleware for static files and API routes
+  if (
+    req.nextUrl.pathname.startsWith('/_next') ||
+    req.nextUrl.pathname.startsWith('/api') ||
+    req.nextUrl.pathname.includes('.')
+  ) {
+    return NextResponse.next();
   }
 
+  // Env guard
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    console.error('Supabase env vars missing');
+    return NextResponse.next();
+  }
+
+  let response = NextResponse.next();
+  
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    { cookies: {
-      getAll: () => req.cookies.getAll(),
-      setAll: (cookiesToSet) => {
-        const response = NextResponse.next();
-        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
-        return response;
+    {
+      cookies: {
+        getAll: () => req.cookies.getAll(),
+        setAll: (cookiesToSet) => {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            response.cookies.set(name, value, options);
+          });
+        },
       },
-    } }
-  );  // Logic: ssr client (async-safe sessions – no old helpers)
+    }
+  );
 
-  const { data: { session } } = await supabase.auth.getSession();  // Logic: Await fetch (async-safe)
-
-  if (!session && !req.nextUrl.pathname.startsWith('/auth')) {
-    return NextResponse.redirect(new URL('/auth/signin', req.url));
+  // Check cache first
+  const sessionToken = req.cookies.get('sb-access-token')?.value;
+  const cached = sessionToken ? authCache.get(sessionToken) : null;
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    // Use cached user
+    if (!cached.user && !req.nextUrl.pathname.startsWith('/auth')) {
+      return NextResponse.redirect(new URL('/auth/signin', req.url));
+    }
+    return response;
   }
 
-  return NextResponse.next();
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+
+    // Update cache
+    if (sessionToken) {
+      authCache.set(sessionToken, { user, timestamp: Date.now() });
+    }
+
+    // Redirect logic
+    if (!user && !req.nextUrl.pathname.startsWith('/auth')) {
+      return NextResponse.redirect(new URL('/auth/signin', req.url));
+    }
+  } catch (error) {
+    console.error('Auth error in middleware:', error);
+    // On error, allow through to avoid blocking
+    return response;
+  }
+
+  return response;
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api|auth).*)'],  // Logic: Protect non-static/auth (optimizes)
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\..*|api|auth/signin|auth/signup).*)',
+  ],
 };

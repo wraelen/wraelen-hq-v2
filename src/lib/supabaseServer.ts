@@ -1,38 +1,55 @@
-// src/lib/supabaseServer.ts – Async Supabase server client helper (best practice: Wrap for Next 15 async cookies – fixes sync-dynamic-apis warnings; centralized for reuse in actions/layout; added autoRefresh false to avoid sets in components)
+// src/lib/supabaseServer.ts – With request deduplication to prevent rate limits
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import type { Database } from '@/types/database.types'; // Keep your types
+import type { Database } from '@/types/database.types';
+
+// Singleton cache to prevent multiple concurrent getUser calls
+let cachedClient: any = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 2000; // 2 seconds
 
 export async function createSupabaseServerClient() {
-  const cookieStore = await cookies(); // Logic: Await dynamic cookies (Next 15 requirement – avoids sync errors)
-  return createServerClient<Database>(
+  // Return cached client if still fresh
+  if (cachedClient && Date.now() - cacheTimestamp < CACHE_TTL) {
+    return cachedClient;
+  }
+
+  const cookieStore = await cookies();
+  
+  const client = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
-        autoRefreshToken: false, // Logic: Disable auto-refresh in server components (prevents token set during getSession – fixes cookie modify error; refresh in actions/middleware)
-        persistSession: false, // Logic: No persist on server (session is per-request)
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false, // Important: prevents extra requests
       },
       cookies: {
         get(name: string) {
-          return cookieStore.get(name)?.value; // Logic: Sync get after await (safe)
+          return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: any) {
           try {
-            cookieStore.set({ name, value, ...options }); // Logic: No await needed (set is sync)
+            cookieStore.set({ name, value, ...options });
           } catch (error) {
-            // The `set` method was called from a Server Action. Ignore – middleware will refresh session on next request.
-            // Logic: No logging here (expected noise in Next.js 15+ with Supabase SSR during token refresh attempts; the try-catch safely ignores it per docs – unblocks cleanly without clutter; push back: If debugging needed, add console.warn only in dev via process.env.NODE_ENV)
+            // Silently fail - expected in some contexts
           }
         },
         remove(name: string, options: any) {
           try {
-            cookieStore.set({ name, value: '', ...options }); // Logic: Remove via empty set
+            cookieStore.set({ name, value: '', ...options });
           } catch (error) {
-            // Ignored as above
+            // Silently fail
           }
         },
       },
     }
   );
+
+  // Cache the client
+  cachedClient = client;
+  cacheTimestamp = Date.now();
+
+  return client;
 }
