@@ -54,28 +54,23 @@ export default function LeadsPage() {
   };
 
   const handleUpdateEmail = async (leadId: string, email: string) => {
-    try {
-      const result = await updateLeadEmailAction(leadId, email);
-      
-      if ('error' in result) {
-        setNotification({
-          type: 'error',
-          message: result.error,
-        });
-        throw new Error(result.error);
-      }
-
+    const result = await updateLeadEmailAction(leadId, email);
+    
+    if ('error' in result) {
       setNotification({
-        type: 'success',
-        message: result.message || 'Email updated successfully',
+        type: 'error',
+        message: result.error,
       });
-
-      // Reload leads to show updated data
-      await loadLeads();
-    } catch (error) {
-      // Error already set in notification above
-      console.error('Email update failed:', error);
+      throw new Error(result.error);
     }
+
+    setNotification({
+      type: 'success',
+      message: result.message || 'Email updated successfully',
+    });
+
+    // Reload leads to show updated data
+    await loadLeads();
   };
 
   const handleUpdateNotes = async (leadId: string, notes: string) => {

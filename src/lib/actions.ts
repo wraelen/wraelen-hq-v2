@@ -119,6 +119,239 @@ async function scrapeRealtorAgent(address: string, city: string, state: string, 
   }
 }
 
+// ============= LEAD UPDATE ACTIONS =============
+
+// Email validation helper
+async function validateEmail(email: string): Promise<boolean> {
+  // Basic format check
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.log('📧 Format check failed for:', email);
+    return false;
+  }
+
+  try {
+    // Extract domain for MX record check
+    const domain = email.split('@')[1];
+    console.log('📧 Checking domain:', domain);
+    
+    // Check for common disposable/invalid domains
+    const invalidDomains = ['example.com', 'test.com', 'invalid.com', 'fake.com'];
+    if (invalidDomains.includes(domain.toLowerCase())) {
+      console.log('📧 Domain is in blocked list:', domain);
+      return false;
+    }
+    
+    // Use Google's DNS API to check MX records (free, no auth needed)
+    console.log('📧 Querying DNS for MX records...');
+    const response = await fetch(
+      `https://dns.google/resolve?name=${domain}&type=MX`,
+      { 
+        cache: 'no-store',
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      }
+    );
+    
+    if (!response.ok) {
+      console.warn(`📧 DNS lookup failed for ${domain}, status: ${response.status}`);
+      // If DNS check fails, we'll accept the email rather than rejecting it
+      // This prevents blocking valid emails due to API issues
+      return true;
+    }
+    
+    const data = await response.json();
+    console.log('📧 DNS response:', JSON.stringify(data, null, 2));
+    
+    // Check if domain has MX records
+    const hasMXRecords = data.Answer && data.Answer.length > 0;
+    
+    if (!hasMXRecords) {
+      console.log(`📧 No MX records found for ${domain}`);
+      return false;
+    }
+    
+    console.log(`📧 ✅ Domain ${domain} has valid MX records`);
+    return true;
+  } catch (error) {
+    console.error('📧 Email validation error:', error);
+    // If validation service fails, accept the email
+    // Better to allow potentially invalid emails than block valid ones
+    return true;
+  }
+}
+
+export async function updateLeadEmailAction(leadId: string, email: string) {
+  console.log('🔍 Starting email validation for:', email);
+  
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    // Check if lead belongs to user
+    const lead = await prisma.leads.findUnique({
+      where: { id: leadId },
+    });
+
+    if (!lead || lead.assigned_to !== user.id) {
+      return { error: 'Lead not found or unauthorized' };
+    }
+
+    // Validate email format first
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      console.log('❌ Email failed format check:', email);
+      return { error: 'Invalid email format' };
+    }
+    
+    console.log('✅ Email format valid, checking domain...');
+
+    // Validate email domain
+    const isValid = await validateEmail(email);
+
+    if (!isValid) {
+      console.log('❌ Email failed domain validation:', email);
+      return { error: 'Invalid email domain - no mail server found for this domain' };
+    }
+    
+    console.log('✅ Email validation passed! Saving to database...');
+
+    // Update lead with validated email
+    await prisma.leads.update({
+      where: { id: leadId },
+      data: {
+        realtor_email: email,
+        email_validated: true,
+        email_validated_at: new Date(),
+      },
+    });
+
+    // Award points for validated email
+    await prisma.profile.update({
+      where: { user_id: user.id },
+      data: {
+        points: { increment: 20 },
+      },
+    });
+    
+    console.log('🎉 Email saved and +20 XP awarded!');
+
+    return {
+      success: true,
+      message: '🎉 +20 XP! Email validated successfully',
+      pointsEarned: 20,
+    };
+  } catch (error) {
+    console.error('❌ Update email error:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update email',
+    };
+  }
+}
+
+export async function updateLeadNotesAction(leadId: string, notes: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    // Check if lead belongs to user
+    const lead = await prisma.leads.findUnique({
+      where: { id: leadId },
+    });
+
+    if (!lead || lead.assigned_to !== user.id) {
+      return { error: 'Lead not found or unauthorized' };
+    }
+
+    // Update notes
+    await prisma.leads.update({
+      where: { id: leadId },
+      data: {
+        call_notes: notes,
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Update notes error:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update notes',
+    };
+  }
+}
+
+export async function getLeadsForTable() {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    console.log('No user found in getLeadsForTable');
+    return [];
+  }
+
+  try {
+    const leads = await prisma.leads.findMany({
+      where: {
+        assigned_to: user.id,
+      },
+      include: {
+        properties: true,
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    });
+
+    console.log(`Found ${leads.length} leads for user ${user.id}`);
+
+    return leads.map((lead) => ({
+      id: lead.id,
+      // Agent info
+      realtor_first_name: lead.realtor_first_name,
+      realtor_last_name: lead.realtor_last_name,
+      realtor_phone: lead.realtor_phone,
+      realtor_email: lead.realtor_email || null,
+      email_validated: lead.email_validated || false,
+      
+      // Lead info
+      call_notes: lead.call_notes || null,
+      status: lead.status,
+      
+      // Property info
+      property_address: lead.properties.address,
+      property_city: lead.properties.city,
+      property_state: lead.properties.state,
+      property_zip: lead.properties.zip_code,
+      property_type: lead.properties.property_type,
+      bedrooms: lead.properties.bedrooms,
+      bathrooms: lead.properties.bathrooms,
+      square_feet: lead.properties.square_feet,
+      listing_price: lead.properties.listing_price ? Number(lead.properties.listing_price) : null,
+      equity: lead.properties.equity ? Number(lead.properties.equity) : null,
+      remaining_balance: lead.properties.remaining_balance ? Number(lead.properties.remaining_balance) : null,
+      open_loans: lead.properties.open_loans,
+      property_image_url: lead.properties.property_image_url || null,
+      
+      // Timestamps
+      created_at: lead.created_at,
+      updated_at: lead.updated_at,
+    }));
+  } catch (error) {
+    console.error('Get leads error:', error);
+    return [];
+  }
+}
+
+
+
+
 // Helper function to update import job progress
 async function updateJobProgress(jobId: string, progress: number, message: string, currentRow?: number) {
   await prisma.import_jobs.update({

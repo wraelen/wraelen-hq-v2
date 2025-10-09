@@ -1,4 +1,4 @@
-// src/app/layout.tsx - Auth re-enabled with proper error handling
+// src/app/layout.tsx - Updated with new Leads table under Data
 import '@/styles/global.css';
 import {
   Award,
@@ -43,7 +43,7 @@ const navItems = [
 ];
 
 const dataItems = [
-  { title: 'Leads', href: '/data/leads', icon: Users },
+  { title: 'Leads', href: '/leads', icon: Users },
   { title: 'Properties', href: '/data/properties', icon: Building },
   { title: 'Call Metrics', href: '/data/calls', icon: PhoneCall },
 ];
