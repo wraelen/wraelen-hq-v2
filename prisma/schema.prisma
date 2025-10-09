@@ -140,20 +140,35 @@ model badges {
 }
 
 model import_batches {
-  id              String   @id @default(uuid())
-  user_id         String
+  id              String   @id @default(uuid()) @db.Uuid
+  user_id         String   @db.Uuid
   filename        String?
   total_rows      Int
   successful_rows Int
   failed_rows     Int
   points_earned   Int      @default(0)
-  lead_ids        String[] // Array of created lead IDs for undo
-  property_ids    String[] // Array of created property IDs for undo
-  errors          Json?    // Store any errors that occurred
+  lead_ids        String[] @default([])
+  property_ids    String[] @default([])
+  errors          Json?
   created_at      DateTime @default(now())
 
   @@index([user_id])
   @@index([created_at])
+}
+
+model import_jobs {
+  id              String    @id @default(uuid())
+  user_id         String
+  filename        String
+  status          String    // 'processing', 'completed', 'failed'
+  progress        Int       @default(0)
+  status_message  String?
+  current_row     Int?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @default(now())
+  completed_at    DateTime?
+  
+  @@index([user_id])
 }
 
 enum PropertyType {

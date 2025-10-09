@@ -1,4 +1,4 @@
-// src/app/extract/page.tsx - Full CSV import with agent scraping
+// src/app/extract/page.tsx - With progress polling
 'use client';
 
 import { FileUp, Loader2, Sparkles, Trash2, Upload, X } from 'lucide-react';
@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { getImportHistory, importCSVAction, undoImportAction } from '@/lib/actions';
+import { getImportHistory, getImportJobStatus, importCSVAction, undoImportAction } from '@/lib/actions';
 
 type ImportBatch = {
   id: string;
@@ -38,20 +38,79 @@ export default function ExtractPage() {
   const [file, setFile] = useState<File | null>(null);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [progressText, setProgressText] = useState('');
+  const [importMessage, setImportMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showQuestPopup, setShowQuestPopup] = useState(false);
   const [questCompleted, setQuestCompleted] = useState<string | null>(null);
   const [history, setHistory] = useState<ImportBatch[]>([]);
   const [deletingBatchId, setDeletingBatchId] = useState<string | null>(null);
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
 
   useEffect(() => {
     loadHistory();
   }, []);
 
+  // Polling effect for job progress
+  useEffect(() => {
+    if (!currentJobId || !importing) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const status = await getImportJobStatus(currentJobId);
+        
+        if ('error' in status) {
+          console.error('Job status error:', status.error);
+          clearInterval(pollInterval);
+          setImporting(false);
+          setError(status.error);
+          return;
+        }
+
+        setProgress(status.progress || 0);
+        setImportMessage(status.message || '');
+
+        // Job completed
+        if (status.status === 'completed') {
+          clearInterval(pollInterval);
+          setImporting(false);
+          setProgress(100);
+          setImportMessage('✨ Import quest complete!');
+          
+          // Reload history after completion
+          setTimeout(() => {
+            loadHistory();
+            setFile(null);
+            setProgress(0);
+            setImportMessage('');
+            setCurrentJobId(null);
+          }, 2000);
+        }
+
+        // Job failed
+        if (status.status === 'failed') {
+          clearInterval(pollInterval);
+          setImporting(false);
+          setError('Import job failed');
+          setCurrentJobId(null);
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+        clearInterval(pollInterval);
+        setImporting(false);
+        setError('Failed to check import status');
+      }
+    }, 1500); // Poll every 1.5 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [currentJobId, importing]);
+
   const loadHistory = async () => {
-    const data = await getImportHistory();
-    setHistory(data);
+    try {
+      const data = await getImportHistory();
+      setHistory(data);
+    } catch (err) {
+      console.error('Failed to load history:', err);
+    }
   };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
@@ -65,59 +124,44 @@ export default function ExtractPage() {
     onDrop,
     accept: { 'text/csv': ['.csv'] },
     maxFiles: 1,
-    maxSize: 10 * 1024 * 1024, // 10MB
+    maxSize: 10 * 1024 * 1024,
   });
 
   const handleImport = async () => {
     if (!file) return;
 
     setImporting(true);
-    setProgress(0);
     setError(null);
-    setProgressText('⚔️ Preparing import quest...');
+    setProgress(0);
+    setImportMessage('⚔️ Preparing import quest...');
 
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('source', 'propstream');
 
-      // Simulate RPG loading phases
-      await delay(800);
-      setProgress(5);
-      setProgressText('📜 Reading ancient CSV scrolls...');
-
-      await delay(600);
-      setProgress(10);
-      setProgressText('🔍 Seeking listing agents...');
-
-      const result = await importCSVAction(formData, (update) => {
-        setProgress(update.progress);
-        setProgressText(update.message);
-      });
+      // Call the import action
+      const result = await importCSVAction(formData);
 
       if ('error' in result) {
         setError(result.error);
-        setProgressText('❌ Quest failed!');
-      } else {
-        setProgress(100);
-        setProgressText('✨ Import quest complete!');
-        
-        // Check for quest completion
-        if (result.questCompleted) {
-          setQuestCompleted(result.questCompleted);
-          setShowQuestPopup(true);
-        }
-
-        await delay(1500);
-        setFile(null);
-        setProgress(0);
-        setProgressText('');
-        await loadHistory();
+        setImportMessage('❌ Quest failed!');
+        setImporting(false);
+        return;
       }
+
+      // Start polling for progress
+      setCurrentJobId(result.jobId);
+      setImportMessage('📜 Processing CSV...');
+
+      // Check for quest completion
+      if (result.questCompleted) {
+        setQuestCompleted(result.questCompleted);
+        setShowQuestPopup(true);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
-      setProgressText('❌ Quest failed!');
-    } finally {
+      setImportMessage('❌ Quest failed!');
       setImporting(false);
     }
   };
@@ -137,8 +181,6 @@ export default function ExtractPage() {
       setDeletingBatchId(null);
     }
   };
-
-  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
   return (
     <div className="space-y-4">
@@ -238,15 +280,22 @@ export default function ExtractPage() {
 
               {importing && (
                 <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">{progressText}</p>
-                    <span className="text-sm text-[#00A0E9]">{progress}%</span>
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-[#00A0E9]" />
+                    <p className="text-sm font-medium">{importMessage}</p>
                   </div>
-                  <Progress value={progress} className="h-2" />
-                  <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    <span>Processing... This may take a few minutes</span>
+                  
+                  {/* Progress Bar */}
+                  <div className="space-y-2">
+                    <Progress value={progress} className="h-2" />
+                    <p className="text-xs text-center text-muted-foreground">
+                      {progress}% complete
+                    </p>
                   </div>
+
+                  <p className="text-xs text-muted-foreground text-center">
+                    Scraping Realtor.com for agent data... This may take several minutes!
+                  </p>
                 </div>
               )}
 
