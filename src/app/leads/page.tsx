@@ -1,4 +1,4 @@
-// src/app/leads/page.tsx - Example usage (no toast dependency)
+// src/app/leads/page.tsx - Add the missing onOpenCalculator handler
 'use client';
 
 import { Loader2, Sparkles } from 'lucide-react';
@@ -27,7 +27,6 @@ export default function LeadsPage() {
     loadLeads();
   }, []);
 
-  // Auto-hide notification after 5 seconds
   useEffect(() => {
     if (notification) {
       const timer = setTimeout(() => setNotification(null), 5000);
@@ -39,15 +38,15 @@ export default function LeadsPage() {
     setLoading(true);
     try {
       const data = await getLeadsForTable();
-      console.log('Loaded leads:', data); // Debug log
-      setLeads(data || []); // Ensure it's always an array
+      console.log('Loaded leads:', data);
+      setLeads(data || []);
     } catch (error) {
       console.error('Error loading leads:', error);
       setNotification({
         type: 'error',
         message: 'Failed to load leads',
       });
-      setLeads([]); // Set empty array on error
+      setLeads([]);
     } finally {
       setLoading(false);
     }
@@ -69,7 +68,6 @@ export default function LeadsPage() {
       message: result.message || 'Email updated successfully',
     });
 
-    // Reload leads to show updated data
     await loadLeads();
   };
 
@@ -89,7 +87,6 @@ export default function LeadsPage() {
       message: 'Notes updated successfully',
     });
 
-    // Reload leads to show updated data
     await loadLeads();
   };
 
@@ -114,6 +111,15 @@ export default function LeadsPage() {
     router.push(`/leads/${leadId}`);
   };
 
+  // NEW: Add calculator handler (for now just show message, we'll build the modal in Sprint 2)
+  const handleOpenCalculator = (leadId: string) => {
+    setNotification({
+      type: 'success',
+      message: 'Calculator coming soon! Sprint 2 in progress 🧮',
+    });
+    // TODO: Open calculator modal with pre-filled data
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -124,7 +130,6 @@ export default function LeadsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h2 className="text-3xl font-bold tracking-tight">Leads</h2>
         <p className="text-muted-foreground">
@@ -132,7 +137,6 @@ export default function LeadsPage() {
         </p>
       </div>
 
-      {/* Notification */}
       {notification && (
         <Alert
           className={
@@ -151,7 +155,6 @@ export default function LeadsPage() {
         </Alert>
       )}
 
-      {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -188,7 +191,6 @@ export default function LeadsPage() {
         </Card>
       </div>
 
-      {/* Data Table */}
       <Card>
         <CardHeader>
           <CardTitle>All Leads</CardTitle>
@@ -203,6 +205,7 @@ export default function LeadsPage() {
             onUpdateNotes={handleUpdateNotes}
             onCallLead={handleCallLead}
             onViewDetails={handleViewDetails}
+            onOpenCalculator={handleOpenCalculator}
           />
         </CardContent>
       </Card>

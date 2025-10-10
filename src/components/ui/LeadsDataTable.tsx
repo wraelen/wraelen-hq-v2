@@ -1,4 +1,4 @@
-// src/components/LeadsDataTable.tsx
+// src/components/ui/LeadsDataTable.tsx - Updated with Days on Market
 'use client';
 
 import { useState } from 'react';
@@ -44,7 +44,7 @@ import {
   Home,
   Phone,
   Mail,
-  DollarSign,
+  Calculator as CalcIcon,
   Loader2,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -76,6 +76,7 @@ export type LeadRow = {
   remaining_balance: number | null;
   open_loans: number | null;
   property_image_url: string | null;
+  days_on_market: number | null;
   
   // Timestamps
   created_at: Date;
@@ -88,6 +89,7 @@ interface LeadsDataTableProps {
   onUpdateNotes?: (leadId: string, notes: string) => Promise<void>;
   onCallLead?: (leadId: string) => void;
   onViewDetails?: (leadId: string) => void;
+  onOpenCalculator?: (leadId: string) => void;
 }
 
 export function LeadsDataTable({
@@ -96,9 +98,10 @@ export function LeadsDataTable({
   onUpdateNotes,
   onCallLead,
   onViewDetails,
+  onOpenCalculator,
 }: LeadsDataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'created_at', desc: true }
+    { id: 'days_on_market', desc: true } // Sort by days on market by default
   ]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
@@ -147,7 +150,6 @@ export function LeadsDataTable({
       setTempEmail('');
     } catch (error) {
       console.error('Failed to update email:', error);
-      // Don't clear the form on error so user can try again
     } finally {
       setSavingEmail(false);
     }
@@ -163,13 +165,56 @@ export function LeadsDataTable({
       setTempNotes('');
     } catch (error) {
       console.error('Failed to update notes:', error);
-      // Don't clear the form on error so user can try again
     } finally {
       setSavingNotes(false);
     }
   };
 
   const columns: ColumnDef<LeadRow>[] = [
+    {
+      accessorKey: 'property_address',
+      header: 'Property',
+      cell: ({ row }) => {
+        const imageUrl = row.original.property_image_url;
+        const address = row.original.property_address;
+        const city = row.original.property_city;
+        const state = row.original.property_state;
+        const zip = row.original.property_zip;
+
+        // Use scraped image or Google Street View
+        const streetViewUrl = imageUrl || 
+          `https://maps.googleapis.com/maps/api/streetview?size=100x100&location=${encodeURIComponent(
+            `${address}, ${city}, ${state} ${zip}`
+          )}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''}`;
+
+        return (
+          <div className="flex items-center gap-3">
+            <div className="relative h-12 w-12 rounded-md overflow-hidden bg-muted flex-shrink-0">
+              {(imageUrl || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY) ? (
+                <img
+                  src={streetViewUrl}
+                  alt={address}
+                  className="h-full w-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center">
+                  <Home className="h-6 w-6 text-muted-foreground" />
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-medium truncate">{address}</p>
+              <p className="text-sm text-muted-foreground truncate">
+                {city}, {state} {zip}
+              </p>
+            </div>
+          </div>
+        );
+      },
+    },
     {
       accessorKey: 'realtor_name',
       header: ({ column }) => (
@@ -194,24 +239,24 @@ export function LeadsDataTable({
         );
       },
     },
-    {
-      accessorKey: 'realtor_phone',
-      header: 'Agent Phone',
-      cell: ({ row }) => {
-        const phone = row.original.realtor_phone;
-        return phone ? (
-          <a
-            href={`tel:${phone}`}
-            className="text-[#00A0E9] hover:underline flex items-center gap-1"
-          >
-            <Phone className="h-3 w-3" />
-            {phone}
-          </a>
-        ) : (
-          <span className="text-muted-foreground">-</span>
-        );
-      },
-    },
+{
+  accessorKey: 'realtor_phone',
+  header: 'Agent Phone',
+  cell: ({ row }) => {
+    const phone = row.original.realtor_phone;
+    return phone ? (
+      <a
+        href={`tel:${phone}`}
+        className="text-[#00A0E9] hover:underline flex items-center gap-1"
+      >
+        <Phone className="h-3 w-3" />
+        {phone}
+      </a>
+    ) : (
+      <span className="text-muted-foreground">-</span>
+    );
+  },
+},
     {
       accessorKey: 'realtor_email',
       header: 'Agent Email',
@@ -294,6 +339,85 @@ export function LeadsDataTable({
       },
     },
     {
+      accessorKey: 'days_on_market',
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          className="hover:bg-transparent p-0"
+        >
+          Days on Market
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => {
+        const days = row.original.days_on_market;
+        if (!days) return <span className="text-muted-foreground">-</span>;
+        
+        // Color code by days
+        let colorClass = 'text-green-600';
+        if (days > 90) colorClass = 'text-red-600';
+        else if (days > 60) colorClass = 'text-orange-600';
+        else if (days > 30) colorClass = 'text-yellow-600';
+        
+        return (
+          <div className={`font-medium ${colorClass}`}>
+            {days} days
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: 'listing_price',
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          className="hover:bg-transparent p-0"
+        >
+          List Price
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => (
+        <div className="font-medium">{formatCurrency(row.original.listing_price)}</div>
+      ),
+    },
+    {
+      accessorKey: 'equity',
+      header: ({ column }) => (
+        <Button
+          variant="ghost"
+          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
+          className="hover:bg-transparent p-0"
+        >
+          Equity
+          <ArrowUpDown className="ml-2 h-4 w-4" />
+        </Button>
+      ),
+      cell: ({ row }) => (
+        <div className="font-medium text-green-600">
+          {formatCurrency(row.original.equity)}
+        </div>
+      ),
+    },
+    {
+      accessorKey: 'remaining_balance',
+      header: 'Loan Balance',
+      cell: ({ row }) => {
+        const balance = row.original.remaining_balance;
+        return (
+          <div className="text-sm">
+            {balance && balance > 0 ? (
+              <span className="text-orange-600">{formatCurrency(balance)}</span>
+            ) : (
+              <Badge className="bg-green-500/10 text-green-500">Paid Off ✓</Badge>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       accessorKey: 'call_notes',
       header: 'Notes',
       cell: ({ row }) => {
@@ -308,7 +432,7 @@ export function LeadsDataTable({
                 type="text"
                 value={tempNotes}
                 onChange={(e) => setTempNotes(e.target.value)}
-                placeholder="Call wrap-up notes..."
+                placeholder="Call notes..."
                 className="h-8 w-64"
                 autoFocus
                 disabled={savingNotes}
@@ -359,154 +483,6 @@ export function LeadsDataTable({
       },
     },
     {
-      accessorKey: 'property_address',
-      header: 'Property',
-      cell: ({ row }) => {
-        const imageUrl = row.original.property_image_url;
-        const address = row.original.property_address;
-        const city = row.original.property_city;
-        const state = row.original.property_state;
-        const zip = row.original.property_zip;
-
-        // Generate Google Street View static image if no property image
-        const streetViewUrl = imageUrl || 
-          `https://maps.googleapis.com/maps/api/streetview?size=100x100&location=${encodeURIComponent(
-            `${address}, ${city}, ${state} ${zip}`
-          )}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || 'YOUR_KEY'}`;
-
-        return (
-          <div className="flex items-center gap-3">
-            <div className="relative h-12 w-12 rounded-md overflow-hidden bg-muted flex-shrink-0">
-              {streetViewUrl && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? (
-                <img
-                  src={streetViewUrl}
-                  alt={address}
-                  className="h-full w-full object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
-              ) : (
-                <div className="h-full w-full flex items-center justify-center">
-                  <Home className="h-6 w-6 text-muted-foreground" />
-                </div>
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="font-medium truncate">{address}</p>
-              <p className="text-sm text-muted-foreground truncate">
-                {city}, {state} {zip}
-              </p>
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: 'property_type',
-      header: 'Type',
-      cell: ({ row }) => (
-        <Badge variant="outline">
-          {getPropertyTypeDisplay(row.original.property_type)}
-        </Badge>
-      ),
-    },
-    {
-      accessorKey: 'beds_baths',
-      header: 'Beds/Baths',
-      cell: ({ row }) => {
-        const beds = row.original.bedrooms;
-        const baths = row.original.bathrooms;
-        return (
-          <div className="text-sm">
-            {beds || '-'} / {baths || '-'}
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: 'square_feet',
-      header: 'Sq Ft',
-      cell: ({ row }) => (
-        <div className="text-sm">{formatNumber(row.original.square_feet)}</div>
-      ),
-    },
-    {
-      accessorKey: 'listing_price',
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="hover:bg-transparent p-0"
-        >
-          List Price
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => (
-        <div className="font-medium">{formatCurrency(row.original.listing_price)}</div>
-      ),
-    },
-    {
-      accessorKey: 'equity',
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="hover:bg-transparent p-0"
-        >
-          Equity
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => (
-        <div className="font-medium text-green-600">
-          {formatCurrency(row.original.equity)}
-        </div>
-      ),
-    },
-    {
-      accessorKey: 'remaining_balance',
-      header: 'Balance',
-      cell: ({ row }) => (
-        <div className="text-sm">{formatCurrency(row.original.remaining_balance)}</div>
-      ),
-    },
-    {
-      accessorKey: 'open_loans',
-      header: 'Loans',
-      cell: ({ row }) => (
-        <div className="text-sm">{row.original.open_loans || '-'}</div>
-      ),
-    },
-    {
-      accessorKey: 'created_at',
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="hover:bg-transparent p-0"
-        >
-          Created
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => (
-        <div className="text-sm text-muted-foreground">
-          {formatDistanceToNow(new Date(row.original.created_at), { addSuffix: true })}
-        </div>
-      ),
-    },
-    {
-      accessorKey: 'updated_at',
-      header: 'Updated',
-      cell: ({ row }) => (
-        <div className="text-sm text-muted-foreground">
-          {formatDistanceToNow(new Date(row.original.updated_at), { addSuffix: true })}
-        </div>
-      ),
-    },
-    {
       id: 'actions',
       cell: ({ row }) => {
         const lead = row.original;
@@ -521,6 +497,12 @@ export function LeadsDataTable({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              {onOpenCalculator && (
+                <DropdownMenuItem onClick={() => onOpenCalculator(lead.id)}>
+                  <CalcIcon className="mr-2 h-4 w-4" />
+                  Open Calculator
+                </DropdownMenuItem>
+              )}
               {onCallLead && lead.realtor_phone && (
                 <DropdownMenuItem onClick={() => onCallLead(lead.id)}>
                   <Phone className="mr-2 h-4 w-4" />
@@ -555,6 +537,14 @@ export function LeadsDataTable({
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
+    globalFilterFn: (row, columnId, filterValue) => {
+      // Custom search: Search by agent name OR property address
+      const searchValue = filterValue.toLowerCase();
+      const agentName = `${row.original.realtor_first_name || ''} ${row.original.realtor_last_name || ''}`.toLowerCase();
+      const address = row.original.property_address.toLowerCase();
+      
+      return agentName.includes(searchValue) || address.includes(searchValue);
+    },
     state: {
       sorting,
       columnFilters,
@@ -567,21 +557,40 @@ export function LeadsDataTable({
     },
   });
 
+  // Filter helpers
+  const paidOffCount = data.filter(l => !l.remaining_balance || l.remaining_balance === 0).length;
+  const over60DaysCount = data.filter(l => l.days_on_market && l.days_on_market > 60).length;
+
   return (
     <div className="space-y-4">
-      {/* Search Bar */}
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search & Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search leads..."
+            placeholder="Search by agent name or address..."
             value={globalFilter ?? ''}
             onChange={(e) => setGlobalFilter(e.target.value)}
             className="pl-9"
           />
         </div>
-        <Badge variant="secondary">
-          {table.getFilteredRowModel().rows.length} leads
+        
+        <Badge variant="secondary" className="cursor-pointer hover:bg-secondary/80">
+          Total: {table.getFilteredRowModel().rows.length}
+        </Badge>
+        
+        <Badge 
+          variant="outline" 
+          className="cursor-pointer hover:bg-green-500/10 text-green-600 border-green-600"
+        >
+          💰 Paid Off: {paidOffCount}
+        </Badge>
+        
+        <Badge 
+          variant="outline"
+          className="cursor-pointer hover:bg-orange-500/10 text-orange-600 border-orange-600"
+        >
+          ⏰ 60+ Days: {over60DaysCount}
         </Badge>
       </div>
 
@@ -678,4 +687,3 @@ export function LeadsDataTable({
       </div>
     </div>
   );
-}
