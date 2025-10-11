@@ -1,4 +1,4 @@
-// src/app/leads/page.tsx - Add the missing onOpenCalculator handler
+// src/app/leads/page.tsx - Added listing price update handler
 'use client';
 
 import { Loader2, Sparkles } from 'lucide-react';
@@ -11,7 +11,8 @@ import {
   dialLeadAction, 
   getLeadsForTable, 
   updateLeadEmailAction,
-  updateLeadNotesAction 
+  updateLeadNotesAction,
+  updateLeadListingPriceAction
 } from '@/lib/actions';
 
 export default function LeadsPage() {
@@ -90,6 +91,25 @@ export default function LeadsPage() {
     await loadLeads();
   };
 
+  const handleUpdateListingPrice = async (leadId: string, price: number) => {
+    const result = await updateLeadListingPriceAction(leadId, price);
+    
+    if ('error' in result) {
+      setNotification({
+        type: 'error',
+        message: result.error,
+      });
+      throw new Error(result.error);
+    }
+
+    setNotification({
+      type: 'success',
+      message: `Listing price updated to ${(price / 1000).toLocaleString()}k`,
+    });
+
+    await loadLeads();
+  };
+
   const handleCallLead = async (leadId: string) => {
     const result = await dialLeadAction(leadId);
     
@@ -111,7 +131,7 @@ export default function LeadsPage() {
     router.push(`/leads/${leadId}`);
   };
 
-  // NEW: Add calculator handler (for now just show message, we'll build the modal in Sprint 2)
+  // Calculator handler (coming in Sprint 2)
   const handleOpenCalculator = (leadId: string) => {
     setNotification({
       type: 'success',
@@ -195,7 +215,7 @@ export default function LeadsPage() {
         <CardHeader>
           <CardTitle>All Leads</CardTitle>
           <CardDescription>
-            Click on email or notes fields to add/edit information. Validated emails earn +20 XP!
+            Click on email, notes, or price fields to add/edit information. Validated emails earn +20 XP!
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -203,6 +223,7 @@ export default function LeadsPage() {
             data={leads}
             onUpdateEmail={handleUpdateEmail}
             onUpdateNotes={handleUpdateNotes}
+            onUpdateListingPrice={handleUpdateListingPrice}
             onCallLead={handleCallLead}
             onViewDetails={handleViewDetails}
             onOpenCalculator={handleOpenCalculator}

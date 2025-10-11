@@ -1,26 +1,38 @@
-// src/components/ui/LeadsDataTable.tsx - Updated with Days on Market
+// src/components/ui/LeadsDataTable.tsx - Added manual listing price entry
 'use client';
 
-import { useState } from 'react';
 import {
+  type ColumnDef,
+  type ColumnFiltersState,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
-  useReactTable,
-  type ColumnDef,
   type SortingState,
-  type ColumnFiltersState,
+  useReactTable,
 } from '@tanstack/react-table';
+import { formatDistanceToNow } from 'date-fns';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  ArrowUpDown,
+  Calculator as CalcIcon,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  DollarSign,
+  Home,
+  Loader2,
+  Mail,
+  MoreHorizontal,
+  Phone,
+  Search,
+  User,
+} from 'lucide-react';
+import { useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,40 +41,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
-  ArrowUpDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  MoreHorizontal,
-  Search,
-  CheckCircle2,
-  Home,
-  Phone,
-  Mail,
-  Calculator as CalcIcon,
-  Loader2,
-} from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 export type LeadRow = {
   id: string;
-  // Agent info
   realtor_first_name: string | null;
   realtor_last_name: string | null;
   realtor_phone: string | null;
   realtor_email: string | null;
   email_validated: boolean;
-  
-  // Lead info
   call_notes: string | null;
   status: string;
-  
-  // Property info
   property_address: string;
   property_city: string;
   property_state: string;
@@ -77,16 +74,16 @@ export type LeadRow = {
   open_loans: number | null;
   property_image_url: string | null;
   days_on_market: number | null;
-  
-  // Timestamps
   created_at: Date;
   updated_at: Date;
 };
 
 interface LeadsDataTableProps {
   data: LeadRow[];
+  onUpdateAgent?: (leadId: string, firstName: string, lastName: string, phone: string) => Promise<void>;
   onUpdateEmail?: (leadId: string, email: string) => Promise<void>;
   onUpdateNotes?: (leadId: string, notes: string) => Promise<void>;
+  onUpdateListingPrice?: (leadId: string, price: number) => Promise<void>;
   onCallLead?: (leadId: string) => void;
   onViewDetails?: (leadId: string) => void;
   onOpenCalculator?: (leadId: string) => void;
@@ -94,24 +91,36 @@ interface LeadsDataTableProps {
 
 export function LeadsDataTable({
   data = [],
+  onUpdateAgent,
   onUpdateEmail,
   onUpdateNotes,
+  onUpdateListingPrice,
   onCallLead,
   onViewDetails,
   onOpenCalculator,
 }: LeadsDataTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
-    { id: 'days_on_market', desc: true } // Sort by days on market by default
+    { id: 'created_at', desc: true }
   ]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
   
+  const [editingAgent, setEditingAgent] = useState<string | null>(null);
   const [editingEmail, setEditingEmail] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
+  const [editingPrice, setEditingPrice] = useState<string | null>(null);
+  
+  const [tempFirstName, setTempFirstName] = useState('');
+  const [tempLastName, setTempLastName] = useState('');
+  const [tempPhone, setTempPhone] = useState('');
   const [tempEmail, setTempEmail] = useState('');
   const [tempNotes, setTempNotes] = useState('');
+  const [tempPrice, setTempPrice] = useState('');
+  
+  const [savingAgent, setSavingAgent] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
+  const [savingPrice, setSavingPrice] = useState(false);
 
   const formatCurrency = (value: number | null) => {
     if (!value) return '-';
@@ -138,6 +147,23 @@ export function LeadsDataTable({
       other: 'Other',
     };
     return typeMap[type] || type;
+  };
+
+  const handleAgentSave = async (leadId: string) => {
+    if (!onUpdateAgent || !tempFirstName || !tempPhone) return;
+    
+    setSavingAgent(true);
+    try {
+      await onUpdateAgent(leadId, tempFirstName, tempLastName, tempPhone);
+      setEditingAgent(null);
+      setTempFirstName('');
+      setTempLastName('');
+      setTempPhone('');
+    } catch (error) {
+      console.error('Failed to update agent:', error);
+    } finally {
+      setSavingAgent(false);
+    }
   };
 
   const handleEmailSave = async (leadId: string) => {
@@ -170,6 +196,28 @@ export function LeadsDataTable({
     }
   };
 
+  const handlePriceSave = async (leadId: string) => {
+    if (!onUpdateListingPrice || !tempPrice) return;
+    
+    setSavingPrice(true);
+    try {
+      // Convert to number and multiply by 1000
+      const numericPrice = parseFloat(tempPrice.replace(/[^0-9.]/g, ''));
+      if (isNaN(numericPrice)) {
+        throw new Error('Invalid price');
+      }
+      
+      const finalPrice = numericPrice * 1000;
+      await onUpdateListingPrice(leadId, finalPrice);
+      setEditingPrice(null);
+      setTempPrice('');
+    } catch (error) {
+      console.error('Failed to update price:', error);
+    } finally {
+      setSavingPrice(false);
+    }
+  };
+
   const columns: ColumnDef<LeadRow>[] = [
     {
       accessorKey: 'property_address',
@@ -181,7 +229,6 @@ export function LeadsDataTable({
         const state = row.original.property_state;
         const zip = row.original.property_zip;
 
-        // Use scraped image or Google Street View
         const streetViewUrl = imageUrl || 
           `https://maps.googleapis.com/maps/api/streetview?size=100x100&location=${encodeURIComponent(
             `${address}, ${city}, ${state} ${zip}`
@@ -216,47 +263,119 @@ export function LeadsDataTable({
       },
     },
     {
-      accessorKey: 'realtor_name',
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="hover:bg-transparent p-0"
-        >
-          Agent Name
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
+      accessorKey: 'agent_info',
+      header: 'Agent Info',
       cell: ({ row }) => {
-        const firstName = row.original.realtor_first_name || '';
-        const lastName = row.original.realtor_last_name || '';
-        const fullName = `${firstName} ${lastName}`.trim();
+        const leadId = row.original.id;
+        const firstName = row.original.realtor_first_name;
+        const lastName = row.original.realtor_last_name;
+        const phone = row.original.realtor_phone;
+        const isEditing = editingAgent === leadId;
+
+        if (isEditing) {
+          return (
+            <div className="space-y-2">
+              <div className="flex gap-2">
+                <Input
+                  placeholder="First name"
+                  value={tempFirstName}
+                  onChange={(e) => setTempFirstName(e.target.value)}
+                  className="h-8"
+                  autoFocus
+                  disabled={savingAgent}
+                />
+                <Input
+                  placeholder="Last name"
+                  value={tempLastName}
+                  onChange={(e) => setTempLastName(e.target.value)}
+                  className="h-8"
+                  disabled={savingAgent}
+                />
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Phone (555-1234)"
+                  value={tempPhone}
+                  onChange={(e) => setTempPhone(e.target.value)}
+                  className="h-8"
+                  disabled={savingAgent}
+                />
+                <Button
+                  size="sm"
+                  onClick={() => handleAgentSave(leadId)}
+                  disabled={!tempFirstName || !tempPhone || savingAgent}
+                >
+                  {savingAgent ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditingAgent(null);
+                    setTempFirstName('');
+                    setTempLastName('');
+                    setTempPhone('');
+                  }}
+                  disabled={savingAgent}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          );
+        }
+
+        const fullName = `${firstName || ''} ${lastName || ''}`.trim();
         
         return (
-          <div className="font-medium">
-            {fullName || <span className="text-muted-foreground italic">No agent</span>}
+          <div className="space-y-1">
+            {fullName ? (
+              <>
+                <div className="font-medium flex items-center gap-1">
+                  <User className="h-3 w-3" />
+                  {fullName}
+                </div>
+                {phone && (
+                  <a
+                    href={`tel:${phone}`}
+                    className="text-sm text-[#00A0E9] hover:underline flex items-center gap-1"
+                  >
+                    <Phone className="h-3 w-3" />
+                    {phone}
+                  </a>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setEditingAgent(leadId);
+                    setTempFirstName(firstName || '');
+                    setTempLastName(lastName || '');
+                    setTempPhone(phone || '');
+                  }}
+                  className="h-6 text-xs"
+                >
+                  Edit
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditingAgent(leadId);
+                  setTempFirstName('');
+                  setTempLastName('');
+                  setTempPhone('');
+                }}
+              >
+                + Add Agent Info
+              </Button>
+            )}
           </div>
         );
       },
     },
-{
-  accessorKey: 'realtor_phone',
-  header: 'Agent Phone',
-  cell: ({ row }) => {
-    const phone = row.original.realtor_phone;
-    return phone ? (
-      <a
-        href={`tel:${phone}`}
-        className="text-[#00A0E9] hover:underline flex items-center gap-1"
-      >
-        <Phone className="h-3 w-3" />
-        {phone}
-      </a>
-    ) : (
-      <span className="text-muted-foreground">-</span>
-    );
-  },
-},
     {
       accessorKey: 'realtor_email',
       header: 'Agent Email',
@@ -339,35 +458,6 @@ export function LeadsDataTable({
       },
     },
     {
-      accessorKey: 'days_on_market',
-      header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === 'asc')}
-          className="hover:bg-transparent p-0"
-        >
-          Days on Market
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
-      cell: ({ row }) => {
-        const days = row.original.days_on_market;
-        if (!days) return <span className="text-muted-foreground">-</span>;
-        
-        // Color code by days
-        let colorClass = 'text-green-600';
-        if (days > 90) colorClass = 'text-red-600';
-        else if (days > 60) colorClass = 'text-orange-600';
-        else if (days > 30) colorClass = 'text-yellow-600';
-        
-        return (
-          <div className={`font-medium ${colorClass}`}>
-            {days} days
-          </div>
-        );
-      },
-    },
-    {
       accessorKey: 'listing_price',
       header: ({ column }) => (
         <Button
@@ -379,9 +469,70 @@ export function LeadsDataTable({
           <ArrowUpDown className="ml-2 h-4 w-4" />
         </Button>
       ),
-      cell: ({ row }) => (
-        <div className="font-medium">{formatCurrency(row.original.listing_price)}</div>
-      ),
+      cell: ({ row }) => {
+        const leadId = row.original.id;
+        const price = row.original.listing_price;
+        const isEditing = editingPrice === leadId;
+
+        if (isEditing) {
+          return (
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <DollarSign className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="text"
+                  value={tempPrice}
+                  onChange={(e) => setTempPrice(e.target.value)}
+                  placeholder="300 (= $300k)"
+                  className="h-8 w-32 pl-7"
+                  autoFocus
+                  disabled={savingPrice}
+                />
+              </div>
+              <span className="text-xs text-muted-foreground">× 1k</span>
+              <Button
+                size="sm"
+                onClick={() => handlePriceSave(leadId)}
+                disabled={!tempPrice || savingPrice}
+              >
+                {savingPrice ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  'Save'
+                )}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setEditingPrice(null);
+                  setTempPrice('');
+                }}
+                disabled={savingPrice}
+              >
+                Cancel
+              </Button>
+            </div>
+          );
+        }
+
+        return (
+          <div 
+            className="font-medium cursor-pointer hover:text-[#00A0E9]"
+            onClick={() => {
+              setEditingPrice(leadId);
+              setTempPrice(price ? String(price / 1000) : '');
+            }}
+            title="Click to edit"
+          >
+            {price ? (
+              formatCurrency(price)
+            ) : (
+              <span className="text-muted-foreground italic">+ Add price</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       accessorKey: 'equity',
@@ -538,7 +689,6 @@ export function LeadsDataTable({
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     globalFilterFn: (row, columnId, filterValue) => {
-      // Custom search: Search by agent name OR property address
       const searchValue = filterValue.toLowerCase();
       const agentName = `${row.original.realtor_first_name || ''} ${row.original.realtor_last_name || ''}`.toLowerCase();
       const address = row.original.property_address.toLowerCase();
@@ -557,13 +707,10 @@ export function LeadsDataTable({
     },
   });
 
-  // Filter helpers
   const paidOffCount = data.filter(l => !l.remaining_balance || l.remaining_balance === 0).length;
-  const over60DaysCount = data.filter(l => l.days_on_market && l.days_on_market > 60).length;
 
   return (
     <div className="space-y-4">
-      {/* Search & Filters */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -585,16 +732,8 @@ export function LeadsDataTable({
         >
           💰 Paid Off: {paidOffCount}
         </Badge>
-        
-        <Badge 
-          variant="outline"
-          className="cursor-pointer hover:bg-orange-500/10 text-orange-600 border-orange-600"
-        >
-          ⏰ 60+ Days: {over60DaysCount}
-        </Badge>
       </div>
 
-      {/* Table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -644,7 +783,6 @@ export function LeadsDataTable({
         </Table>
       </div>
 
-      {/* Pagination */}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           Page {table.getState().pagination.pageIndex + 1} of{' '}
@@ -687,3 +825,4 @@ export function LeadsDataTable({
       </div>
     </div>
   );
+}

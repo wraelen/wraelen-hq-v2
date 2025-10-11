@@ -1,10 +1,9 @@
-// src/lib/actions.ts - Enhanced with comprehensive Realtor.com scraping
+// src/lib/actions.ts - Complete version with APN support
 'use server';
 
 import { LeadSource, LeadType, PropertyType } from '@prisma/client';
 import { redirect } from 'next/navigation';
 import Papa from 'papaparse';
-import puppeteer from 'puppeteer';
 import Twilio from 'twilio';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
@@ -34,7 +33,7 @@ export async function signOutAction() {
   redirect('/auth/signin');
 }
 
-// ============= ENHANCED SCRAPER =============
+// ============= REALTOR API INTEGRATION =============
 
 interface ScrapedPropertyData {
   agent: {
@@ -49,30 +48,104 @@ interface ScrapedPropertyData {
     propertyTax: number | null;
     hoaFee: number | null;
     estimatedRent: number | null;
+    mlsStatus: string | null;
   };
 }
 
-async function scrapeRealtorProperty(address: string, city: string, state: string, zip: string): Promise<ScrapedPropertyData> {
-  let browser;
+// Helper function to extract data from property object
+function extractPropertyData(property: any, address: string): ScrapedPropertyData {
+  const listingPrice = property.list_price || 
+                      property.price || 
+                      property.description?.sold_price ||
+                      null;
+  
+  const daysOnMarket = property.list_date ? 
+                      Math.floor((Date.now() - new Date(property.list_date).getTime()) / (1000 * 60 * 60 * 24)) :
+                      property.days_on_market || 
+                      null;
+  
+  const imageUrl = property.primary_photo?.href || 
+                   property.photos?.[0]?.href ||
+                   property.thumbnail || 
+                   null;
+  
+  const propertyTax = property.tax_history?.[0]?.tax || 
+                      property.description?.taxes ||
+                      null;
+  
+  const hoaFee = property.hoa_fee || 
+                 property.community?.hoa_fee ||
+                 null;
+  
+  const estimatedRent = property.estimate?.rent || 
+                       property.rental_estimate ||
+                       null;
+
+  const mlsStatus = property.status || 
+                    property.mls_status ||
+                    property.listing_status ||
+                    null;
+
+  const advertisers = property.advertisers || [];
+  const primaryAgent = advertisers[0];
+  
+  let agentFirstName = null;
+  let agentLastName = null;
+  let agentPhone = null;
+
+  if (primaryAgent) {
+    const fullName = primaryAgent.name || '';
+    const nameParts = fullName.split(' ');
+    agentFirstName = nameParts[0] || null;
+    agentLastName = nameParts.slice(1).join(' ') || null;
+    
+    agentPhone = primaryAgent.phone?.number || 
+                 primaryAgent.phone ||
+                 primaryAgent.phones?.[0]?.number || 
+                 null;
+  }
+
+  console.log(`✅ Property data extracted for ${address}:`, {
+    price: listingPrice,
+    daysOnMarket,
+    agent: primaryAgent?.name,
+    mlsStatus,
+  });
+
+  return {
+    agent: primaryAgent ? {
+      firstName: agentFirstName,
+      lastName: agentLastName,
+      phone: agentPhone,
+    } : null,
+    listing: {
+      price: listingPrice,
+      daysOnMarket: daysOnMarket,
+      imageUrl: imageUrl,
+      propertyTax: propertyTax,
+      hoaFee: hoaFee,
+      estimatedRent: estimatedRent,
+      mlsStatus: mlsStatus,
+    },
+  };
+}
+
+async function getRealtorDataViaAPI(
+  address: string, 
+  city: string, 
+  state: string, 
+  zip: string, 
+  apn?: string,
+  mlsStatus?: string
+): Promise<ScrapedPropertyData> {
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+    console.log(`🔍 Fetching data for: ${address}, ${city}, ${state} ${zip}`);
+    if (apn) console.log(`   📍 APN: ${apn}`);
+    if (mlsStatus) console.log(`   🏷️  MLS Status: ${mlsStatus}`);
     
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-    
-    const searchQuery = `${address} ${city} ${state} ${zip}`;
-    const searchUrl = `https://www.realtor.com/realestateandhomes-search/${encodeURIComponent(searchQuery)}`;
-    
-    console.log(`🔍 Scraping: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 15000 });
-    await page.waitForSelector('[data-testid="property-card"]', { timeout: 5000 }).catch(() => null);
-    
-    const firstListing = await page.$('[data-testid="property-card"] a');
-    if (!firstListing) {
-      await browser.close();
+    const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
+    if (!RAPIDAPI_KEY) {
+      console.warn('⚠️ RAPIDAPI_KEY not set, skipping Realtor.com data');
       return {
         agent: null,
         listing: {
@@ -82,147 +155,113 @@ async function scrapeRealtorProperty(address: string, city: string, state: strin
           propertyTax: null,
           hoaFee: null,
           estimatedRent: null,
+          mlsStatus: mlsStatus || null,
         },
       };
     }
-    
-    await firstListing.click();
-    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => null);
-    
-    // Scrape all property data from listing page
-    const scrapedData = await page.evaluate(() => {
-      // Helper function
-      const getText = (selector: string): string | null => {
-        const el = document.querySelector(selector);
-        return el?.textContent?.trim() || null;
-      };
 
-      const getNumber = (text: string | null): number | null => {
-        if (!text) return null;
-        const cleaned = text.replace(/[^0-9.]/g, '');
-        const parsed = parseFloat(cleaned);
-        return isNaN(parsed) ? null : parsed;
-      };
-
-      // Agent Info
-      const agentNameSelectors = [
-        '[data-testid="agent-name"]',
-        '.agent-name',
-        '[class*="AgentName"]',
-        '[data-rf-test-id="agent-name"]',
-      ];
-      
-      let agentName = '';
-      for (const selector of agentNameSelectors) {
-        const el = document.querySelector(selector);
-        if (el?.textContent?.trim()) {
-          agentName = el.textContent.trim();
-          break;
-        }
-      }
-      
-      const phoneSelectors = [
-        '[data-testid="agent-phone"]',
-        'a[href^="tel:"]',
-        '[class*="AgentPhone"]',
-      ];
-      
-      let agentPhone = '';
-      for (const selector of phoneSelectors) {
-        const el = document.querySelector(selector);
-        if (el) {
-          agentPhone = el.textContent?.trim() || el.getAttribute('href')?.replace('tel:', '') || '';
-          if (agentPhone) break;
-        }
-      }
-
-      // Listing Price
-      const priceText = getText('[data-testid="list-price"]') || getText('[data-testid="price"]');
-      const listingPrice = getNumber(priceText);
-
-      // Days on Market
-      const domText = getText('[data-testid="days-on-market"]') || 
-                      getText('[data-testid="time-on-realtor"]') ||
-                      getText('[class*="TimeOnRealtor"]');
-      const daysOnMarket = getNumber(domText);
-
-      // Property Image (hero image)
-      const imageSelectors = [
-        'img[data-testid="hero-image"]',
-        'img[data-testid="property-image"]',
-        '.hero-image img',
-        '.primary-photo img',
-      ];
-      
-      let imageUrl = '';
-      for (const selector of imageSelectors) {
-        const img = document.querySelector(selector) as HTMLImageElement;
-        if (img?.src && !img.src.includes('placeholder')) {
-          imageUrl = img.src;
-          break;
-        }
-      }
-
-      // Property Tax (annual)
-      const taxText = getText('[data-testid="property-tax"]') || 
-                      getText('[data-label="Property tax"]') ||
-                      getText('[class*="PropertyTax"]');
-      const propertyTax = getNumber(taxText);
-
-      // HOA Fee (monthly, we'll convert to annual)
-      const hoaText = getText('[data-testid="hoa-fee"]') || 
-                      getText('[data-label="HOA fee"]') ||
-                      getText('[class*="HoaFee"]');
-      const hoaFee = getNumber(hoaText);
-
-      // Rent Estimate
-      const rentText = getText('[data-testid="rent-estimate"]') || 
-                       getText('[data-label="Rent estimate"]') ||
-                       getText('[class*="RentEstimate"]');
-      const estimatedRent = getNumber(rentText);
-
+    // IMPORTANT: If MLS Status exists in CSV, the property is likely already listed
+    // We can skip the API call and just use CSV data
+    if (mlsStatus && mlsStatus.toLowerCase() !== 'active') {
+      console.log(`ℹ️  Property has MLS status "${mlsStatus}" - skipping API lookup`);
       return {
-        agentName,
-        agentPhone,
-        listingPrice,
-        daysOnMarket,
-        imageUrl,
-        propertyTax,
-        hoaFee,
-        estimatedRent,
+        agent: null,
+        listing: {
+          price: null,
+          daysOnMarket: null,
+          imageUrl: null,
+          propertyTax: null,
+          hoaFee: null,
+          estimatedRent: null,
+          mlsStatus: mlsStatus,
+        },
       };
-    });
-    
-    await browser.close();
-
-    // Parse agent name
-    let agentFirstName = null;
-    let agentLastName = null;
-    if (scrapedData.agentName) {
-      const nameParts = scrapedData.agentName.split(' ');
-      agentFirstName = nameParts[0] || null;
-      agentLastName = nameParts.slice(1).join(' ') || null;
     }
 
-    return {
-      agent: scrapedData.agentName ? {
-        firstName: agentFirstName,
-        lastName: agentLastName,
-        phone: scrapedData.agentPhone || null,
-      } : null,
-      listing: {
-        price: scrapedData.listingPrice,
-        daysOnMarket: scrapedData.daysOnMarket,
-        imageUrl: scrapedData.imageUrl || null,
-        propertyTax: scrapedData.propertyTax,
-        hoaFee: scrapedData.hoaFee ? scrapedData.hoaFee * 12 : null, // Convert monthly to annual
-        estimatedRent: scrapedData.estimatedRent,
-      },
-    };
+    // Try address-based search
+    console.log('🔍 Searching by city and state...');
+    const searchResponse = await fetch(
+      `https://realtor-com4.p.rapidapi.com/v2/get-properties?city=${encodeURIComponent(city)}&state_code=${state}&limit=20&status=for_sale`,
+      {
+        headers: {
+          'X-RapidAPI-Key': RAPIDAPI_KEY,
+          'X-RapidAPI-Host': 'realtor-com4.p.rapidapi.com',
+        },
+      }
+    );
+
+    if (!searchResponse.ok) {
+      console.warn(`⚠️ Realtor API failed (${searchResponse.status})`);
+      return {
+        agent: null,
+        listing: {
+          price: null,
+          daysOnMarket: null,
+          imageUrl: null,
+          propertyTax: null,
+          hoaFee: null,
+          estimatedRent: null,
+          mlsStatus: mlsStatus || null,
+        },
+      };
+    }
+
+    const searchData = await searchResponse.json();
+    const properties = searchData?.data?.results || searchData?.results || [];
     
+    if (!Array.isArray(properties) || properties.length === 0) {
+      console.log(`❌ No properties found in ${city}, ${state}`);
+      return {
+        agent: null,
+        listing: {
+          price: null,
+          daysOnMarket: null,
+          imageUrl: null,
+          propertyTax: null,
+          hoaFee: null,
+          estimatedRent: null,
+          mlsStatus: mlsStatus || null,
+        },
+      };
+    }
+
+    // Try to find exact address match
+    const normalizeAddress = (addr: string) => 
+      addr.toLowerCase()
+        .replace(/[^\w\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    
+    const targetAddress = normalizeAddress(address);
+    
+    const property = properties.find((p: any) => {
+      const propAddress = normalizeAddress(p.location?.address?.line || p.address || '');
+      // Match if addresses contain each other (handles street abbreviations)
+      return propAddress.includes(targetAddress.split(' ')[0]) && 
+             (propAddress.includes(targetAddress.split(' ')[1] || '') || 
+              targetAddress.includes(propAddress.split(' ')[1] || ''));
+    });
+
+    if (!property) {
+      console.log(`⚠️ No exact match for "${address}" - property may not be listed`);
+      return {
+        agent: null,
+        listing: {
+          price: null,
+          daysOnMarket: null,
+          imageUrl: null,
+          propertyTax: null,
+          hoaFee: null,
+          estimatedRent: null,
+          mlsStatus: mlsStatus || null,
+        },
+      };
+    }
+
+    return extractPropertyData(property, address);
+
   } catch (error) {
-    console.error('Scraping error:', error);
-    if (browser) await browser.close();
+    console.error(`❌ API error for ${address}:`, error);
     return {
       agent: null,
       listing: {
@@ -232,46 +271,40 @@ async function scrapeRealtorProperty(address: string, city: string, state: strin
         propertyTax: null,
         hoaFee: null,
         estimatedRent: null,
+        mlsStatus: mlsStatus || null,
       },
     };
   }
 }
 
-// Estimate insurance as 0.5% of property value annually
 function estimateInsurance(propertyValue: number | null): number | null {
   if (!propertyValue) return null;
   return Math.round(propertyValue * 0.005);
 }
 
-// Estimate rent using the 1% rule as fallback
 function estimateRent(propertyValue: number | null, scrapedRent: number | null): number | null {
   if (scrapedRent) return scrapedRent;
   if (!propertyValue) return null;
-  // 1% rule: monthly rent ≈ 1% of property value
   return Math.round(propertyValue * 0.01);
 }
 
 // ============= LEAD UPDATE ACTIONS =============
 
-// Email validation helper (keeping current basic validation)
 async function validateEmail(email: string): Promise<boolean> {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
-    console.log('📧 Format check failed for:', email);
     return false;
   }
 
   try {
     const domain = email.split('@')[1];
-    console.log('📧 Checking domain:', domain);
+    if (!domain) return false;
     
     const invalidDomains = ['example.com', 'test.com', 'invalid.com', 'fake.com'];
     if (invalidDomains.includes(domain.toLowerCase())) {
-      console.log('📧 Domain is in blocked list:', domain);
       return false;
     }
     
-    console.log('📧 Querying DNS for MX records...');
     const response = await fetch(
       `https://dns.google/resolve?name=${domain}&type=MX`,
       { 
@@ -281,31 +314,19 @@ async function validateEmail(email: string): Promise<boolean> {
     );
     
     if (!response.ok) {
-      console.warn(`📧 DNS lookup failed for ${domain}, status: ${response.status}`);
       return true;
     }
     
     const data = await response.json();
-    console.log('📧 DNS response:', JSON.stringify(data, null, 2));
-    
     const hasMXRecords = data.Answer && data.Answer.length > 0;
     
-    if (!hasMXRecords) {
-      console.log(`📧 No MX records found for ${domain}`);
-      return false;
-    }
-    
-    console.log(`📧 ✅ Domain ${domain} has valid MX records`);
-    return true;
+    return hasMXRecords || true;
   } catch (error) {
-    console.error('📧 Email validation error:', error);
     return true;
   }
 }
 
 export async function updateLeadEmailAction(leadId: string, email: string) {
-  console.log('🔍 Starting email validation for:', email);
-  
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   
@@ -324,20 +345,14 @@ export async function updateLeadEmailAction(leadId: string, email: string) {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      console.log('❌ Email failed format check:', email);
       return { error: 'Invalid email format' };
     }
-    
-    console.log('✅ Email format valid, checking domain...');
 
     const isValid = await validateEmail(email);
 
     if (!isValid) {
-      console.log('❌ Email failed domain validation:', email);
       return { error: 'Invalid email domain - no mail server found for this domain' };
     }
-    
-    console.log('✅ Email validation passed! Saving to database...');
 
     await prisma.leads.update({
       where: { id: leadId },
@@ -354,8 +369,6 @@ export async function updateLeadEmailAction(leadId: string, email: string) {
         points: { increment: 20 },
       },
     });
-    
-    console.log('🎉 Email saved and +20 XP awarded!');
 
     return {
       success: true,
@@ -363,7 +376,6 @@ export async function updateLeadEmailAction(leadId: string, email: string) {
       pointsEarned: 20,
     };
   } catch (error) {
-    console.error('❌ Update email error:', error);
     return {
       error: error instanceof Error ? error.message : 'Failed to update email',
     };
@@ -396,19 +408,104 @@ export async function updateLeadNotesAction(leadId: string, notes: string) {
 
     return { success: true };
   } catch (error) {
-    console.error('Update notes error:', error);
     return {
       error: error instanceof Error ? error.message : 'Failed to update notes',
     };
   }
 }
 
+export async function updateLeadAgentAction(
+  leadId: string, 
+  firstName: string, 
+  lastName: string, 
+  phone: string
+) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    const lead = await prisma.leads.findUnique({
+      where: { id: leadId },
+    });
+
+    if (!lead || lead.assigned_to !== user.id) {
+      return { error: 'Lead not found or unauthorized' };
+    }
+
+    await prisma.leads.update({
+      where: { id: leadId },
+      data: {
+        realtor_first_name: firstName,
+        realtor_last_name: lastName,
+        realtor_phone: phone,
+      },
+    });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update agent info',
+    };
+  }
+}
+
+export async function updateLeadListingPriceAction(leadId: string, price: number) {
+  try {
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch {}
+          },
+        },
+      }
+    );
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: 'Not authenticated' };
+    }
+
+    // Update the lead's listing price
+    const { error: updateError } = await supabase
+      .from('leads')
+      .update({ listing_price: price })
+      .eq('id', leadId)
+      .eq('user_id', user.id);
+
+    if (updateError) {
+      console.error('Error updating listing price:', updateError);
+      return { error: 'Failed to update listing price' };
+    }
+
+    return { success: true, message: 'Listing price updated successfully' };
+  } catch (error) {
+    console.error('Error in updateLeadListingPriceAction:', error);
+    return { error: 'An unexpected error occurred' };
+  }
+}
 export async function getLeadsForTable() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   
   if (!user?.id) {
-    console.log('No user found in getLeadsForTable');
     return [];
   }
 
@@ -424,8 +521,6 @@ export async function getLeadsForTable() {
         created_at: 'desc',
       },
     });
-
-    console.log(`Found ${leads.length} leads for user ${user.id}`);
 
     return leads.map((lead) => ({
       id: lead.id,
@@ -452,7 +547,7 @@ export async function getLeadsForTable() {
       open_loans: lead.properties.open_loans,
       property_image_url: lead.properties.property_image_url || null,
       days_on_market: lead.metadata && typeof lead.metadata === 'object' && 'days_on_market' in lead.metadata 
-        ? (lead.metadata as any).days_on_market 
+        ? (lead.metadata as Record<string, unknown>).days_on_market as number | null
         : null,
       
       created_at: lead.created_at,
@@ -464,7 +559,8 @@ export async function getLeadsForTable() {
   }
 }
 
-// Helper function to update import job progress
+// ============= IMPORT ACTIONS =============
+
 async function updateJobProgress(jobId: string, progress: number, message: string, currentRow?: number) {
   await prisma.import_jobs.update({
     where: { id: jobId },
@@ -514,36 +610,32 @@ export async function importCSVAction(formData: FormData) {
       return { error: `CSV parse error: ${parsed.errors[0]?.message}` };
     }
     
-    const rows = parsed.data as Record<string, any>[];
+    const rows = parsed.data as Record<string, string>[];
     const leadIds: string[] = [];
     const propertyIds: string[] = [];
-    const errors: any[] = [];
+    const errors: Array<{ row: number; error: string }> = [];
     let successCount = 0;
     
     await updateJobProgress(job.id, 10, '📜 CSV parsed successfully!');
     
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      if (!row) continue;
+      
       const rowNum = i + 1;
       
-      // Update progress with fun messages
-      if (i % 3 === 0) {
-        const progress = 10 + Math.floor((i / rows.length) * 70);
-        const messages = [
-          `🔍 Discovering agent for ${row['Address']?.trim() || 'property'}... (${rowNum}/${rows.length})`,
-          `📸 Capturing property details... (${rowNum}/${rows.length})`,
-          `💰 Calculating rental estimates... (${rowNum}/${rows.length})`,
-        ];
-        const message = messages[i % 3];
-        await updateJobProgress(job.id, progress, message, rowNum);
-      }
+      const progress = 10 + Math.floor((i / rows.length) * 70);
+      const message = `🔍 Processing ${row['Address']?.trim() || 'property'}... (${rowNum}/${rows.length})`;
+      await updateJobProgress(job.id, progress, message, rowNum);
       
       try {
         const address = row['Address']?.trim();
         const city = row['City']?.trim();
         const state = row['State']?.trim()?.toUpperCase();
         const zip = row['Zip']?.trim();
-        const equity = parseFloat(row['Est. Equity']);
+        const apn = row['APN']?.trim(); // Get APN from CSV
+        const mlsStatus = row['MLS Status']?.trim(); // Get MLS Status from CSV
+        const equity = parseFloat(row['Est. Equity'] || '0');
         
         if (!address || !city || !state || !zip || isNaN(equity) || equity <= 0) {
           errors.push({ row: rowNum, error: 'Missing required fields or no equity' });
@@ -559,7 +651,7 @@ export async function importCSVAction(formData: FormData) {
           'commercial': 'commercial',
         };
         
-        const rawType = row['Property Class']?.toLowerCase() || '';
+        const rawType = row['Property Type']?.toLowerCase() || '';
         const property_type = propertyTypeMap[rawType] || 'other';
         
         const address_hash = crypto
@@ -567,11 +659,11 @@ export async function importCSVAction(formData: FormData) {
           .update(`${address}${city}${state}${zip}`.toLowerCase())
           .digest('hex');
         
-        // Scrape Realtor.com for ALL data
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2s delay between requests
-        const scrapedData = await scrapeRealtorProperty(address, city, state, zip);
+        // Fetch data via API (pass APN and MLS Status)
+        await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay
+        const scrapedData = await getRealtorDataViaAPI(address, city, state, zip, apn, mlsStatus);
         
-        const estValue = parseFloat(row['Est. Value']) || null;
+        const estValue = parseFloat(row['Est. Value'] || '0') || null;
         const estimatedInsurance = estimateInsurance(estValue);
         const estimatedRent = estimateRent(estValue, scrapedData.listing.estimatedRent);
         
@@ -581,26 +673,28 @@ export async function importCSVAction(formData: FormData) {
           state,
           zip_code: zip,
           property_type,
-          bedrooms: parseInt(row['Bedrooms']) || null,
-          bathrooms: parseFloat(row['Total Bathrooms']) || null,
-          square_feet: parseFloat(row['Building Sqft']) || null,
+          bedrooms: parseInt(row['Bedrooms'] || '0') || null,
+          bathrooms: parseFloat(row['Total Bathrooms'] || '0') || null,
+          square_feet: parseFloat(row['Building Sqft'] || '0') || null,
           avm: estValue,
           equity,
-          listing_price: scrapedData.listing.price, // From Realtor.com
-          property_image_url: scrapedData.listing.imageUrl, // From Realtor.com
-          remaining_balance: parseFloat(row['Est. Remaining balance of Open Loans']) || null,
-          open_loans: parseInt(row['Total Open Loans']) || null,
+          listing_price: scrapedData.listing.price,
+          property_image_url: scrapedData.listing.imageUrl,
+          remaining_balance: parseFloat(row['Est. Remaining balance of Open Loans'] || '0') || null,
+          open_loans: parseFloat(row['Total Open Loans'] || '0') || null,
           owner_occupied: row['Owner Occupied']?.toLowerCase() === 'yes',
           notes: row['Method of Add'] || null,
-          distress_signals: row['Foreclosure Factor'] ? { foreclosure: row['Foreclosure Factor'] } : null,
+          distress_signals: row['Foreclosure Factor'] ? { foreclosure: row['Foreclosure Factor'] } : undefined,
           metadata: {
-            lien_amount: parseFloat(row['Lien Amount']) || null,
+            apn: apn || null,
+            lien_amount: parseFloat(row['Lien Amount'] || '0') || null,
             date_added: row['Date Added to List'] || null,
-            days_on_market: scrapedData.listing.daysOnMarket, // From Realtor.com
-            property_tax: scrapedData.listing.propertyTax, // From Realtor.com
-            hoa_fee: scrapedData.listing.hoaFee, // From Realtor.com (annual)
-            estimated_insurance: estimatedInsurance, // Calculated
-            estimated_rent: estimatedRent, // From Realtor.com or estimated
+            days_on_market: scrapedData.listing.daysOnMarket,
+            property_tax: scrapedData.listing.propertyTax,
+            hoa_fee: scrapedData.listing.hoaFee,
+            estimated_insurance: estimatedInsurance,
+            estimated_rent: estimatedRent,
+            mls_status: scrapedData.listing.mlsStatus || mlsStatus || null,
           },
         };
         
@@ -632,6 +726,7 @@ export async function importCSVAction(formData: FormData) {
           metadata: {
             days_on_market: scrapedData.listing.daysOnMarket,
             listing_price: scrapedData.listing.price,
+            mls_status: scrapedData.listing.mlsStatus || mlsStatus || null,
             scraped_agent: !!scrapedData.agent,
           },
         };
@@ -666,7 +761,7 @@ export async function importCSVAction(formData: FormData) {
         points_earned: successCount,
         lead_ids: leadIds,
         property_ids: propertyIds,
-        errors: errors.length > 0 ? errors : null,
+        errors: errors.length > 0 ? errors : undefined,
       },
     });
     
