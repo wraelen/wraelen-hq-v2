@@ -3,6 +3,7 @@ import '@/styles/global.css';
 import {
   Award,
   Building,
+  Calculator,
   ChevronDown,
   Database as DatabaseIcon,
   FileText,
@@ -13,8 +14,7 @@ import {
   PhoneCall,
   Settings,
   ShoppingBag,
-  Users,
-} from 'lucide-react';
+ Users } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,7 @@ export const metadata: Metadata = {
 const navItems = [
   { title: 'Home', href: '/dashboard', icon: Home },
   { title: 'Extract', href: '/extract', icon: FileText },
+  { title: 'Calculator', href: '/calculator', icon: Calculator },
   { title: 'Dialer', href: '/dialer', icon: Phone },
   { title: 'Achievement Gallery', href: '/achievements', icon: Award },
   { title: 'Shop', href: '/shop', icon: ShoppingBag },
