@@ -2,12 +2,14 @@
 'use server';
 
 import { LeadSource, LeadType, PropertyType } from '@prisma/client';
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import Papa from 'papaparse';
 import Twilio from 'twilio';
 import crypto from 'crypto';
 import prisma from '@/lib/prisma';
 import { createSupabaseServerClient } from '@/lib/supabaseServer';
+
 
 const twilioClient = Twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
@@ -1027,5 +1029,189 @@ export async function dialLeadAction(leadId: string) {
   } catch (error) {
     console.error('Dial error:', error);
     return { success: false, error: (error as Error).message };
+  }
+}
+
+// ============= PROFILE SETTINGS =============
+
+export async function updateProfileAction(formData: FormData) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    const firstName = formData.get('firstName')?.toString();
+    const lastName = formData.get('lastName')?.toString();
+    const phone = formData.get('phone')?.toString();
+
+    // Update user metadata in Supabase
+    const { error: authError } = await supabase.auth.updateUser({
+      data: {
+        first_name: firstName,
+        last_name: lastName,
+        phone: phone,
+      }
+    });
+
+    if (authError) {
+      return { error: authError.message };
+    }
+
+    revalidatePath('/settings');
+    return { success: true, message: 'Profile updated successfully' };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update profile',
+    };
+  }
+}
+
+// ============= NOTIFICATION PREFERENCES =============
+
+export async function updateNotificationPreferencesAction(preferences: {
+  email: boolean;
+  push: boolean;
+  questComplete: boolean;
+  badgeUnlock: boolean;
+  leaderboardUpdate: boolean;
+}) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    // Store in user metadata
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        notification_preferences: preferences,
+      }
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+
+    revalidatePath('/settings');
+    return { success: true, message: 'Notification preferences updated' };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update preferences',
+    };
+  }
+}
+
+// ============= APP PREFERENCES =============
+
+export async function updateAppPreferencesAction(preferences: {
+  darkMode: boolean;
+  autoDialer: boolean;
+  showStreetView: boolean;
+}) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    // Store in user metadata
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        app_preferences: preferences,
+      }
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+
+    revalidatePath('/settings');
+    return { success: true, message: 'Preferences updated' };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update preferences',
+    };
+  }
+}
+
+// ============= PASSWORD CHANGE =============
+
+export async function changePasswordAction(formData: FormData) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    const newPassword = formData.get('newPassword')?.toString();
+    
+    if (!newPassword || newPassword.length < 6) {
+      return { error: 'Password must be at least 6 characters' };
+    }
+
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+
+    return { success: true, message: 'Password changed successfully' };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'Failed to change password',
+    };
+  }
+}
+
+// ============= GET USER SETTINGS =============
+
+export async function getUserSettings() {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return null;
+  }
+
+  try {
+    // Get profile from Prisma
+    const profile = await prisma.profile.findUnique({
+      where: { user_id: user.id },
+    });
+
+    return {
+      email: user.email,
+      firstName: user.user_metadata?.first_name || '',
+      lastName: user.user_metadata?.last_name || '',
+      phone: user.user_metadata?.phone || '',
+      role: profile?.role || 'novice',
+      points: profile?.points || 0,
+      notificationPreferences: user.user_metadata?.notification_preferences || {
+        email: true,
+        push: false,
+        questComplete: true,
+        badgeUnlock: true,
+        leaderboardUpdate: false,
+      },
+      appPreferences: user.user_metadata?.app_preferences || {
+        darkMode: true,
+        autoDialer: false,
+        showStreetView: true,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    return null;
   }
 }
