@@ -454,53 +454,126 @@ export async function updateLeadAgentAction(
 }
 
 export async function updateLeadListingPriceAction(leadId: string, price: number) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
   try {
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
-          },
-        },
-      }
-    );
+    const lead = await prisma.leads.findUnique({
+      where: { id: leadId },
+      include: {
+        properties: true,
+      },
+    });
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return { error: 'Not authenticated' };
+    if (!lead || lead.assigned_to !== user.id) {
+      return { error: 'Lead not found or unauthorized' };
     }
 
-    // Update the lead's listing price
-    const { error: updateError } = await supabase
-      .from('leads')
-      .update({ listing_price: price })
-      .eq('id', leadId)
-      .eq('user_id', user.id);
+    // Update the property's listing_price
+    await prisma.properties.update({
+      where: { id: lead.properties_id },
+      data: {
+        listing_price: price,
+      },
+    });
 
-    if (updateError) {
-      console.error('Error updating listing price:', updateError);
-      return { error: 'Failed to update listing price' };
-    }
-
-    return { success: true, message: 'Listing price updated successfully' };
+    return { 
+      success: true, 
+      message: 'Listing price updated successfully' 
+    };
   } catch (error) {
-    console.error('Error in updateLeadListingPriceAction:', error);
-    return { error: 'An unexpected error occurred' };
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update listing price',
+    };
   }
 }
+
+export async function saveCalculationAction(leadId: string, data: any) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return { error: 'Not authenticated' };
+  }
+
+  try {
+    const lead = await prisma.leads.findUnique({
+      where: { id: leadId },
+    });
+
+    if (!lead || lead.assigned_to !== user.id) {
+      return { error: 'Lead not found or unauthorized' };
+    }
+
+    // Delete existing calculations for this lead (keep only latest)
+    await prisma.calculations.deleteMany({
+      where: { lead_id: leadId },
+    });
+
+    // Create new calculation
+    const calculation = await prisma.calculations.create({
+      data: {
+        lead_id: leadId,
+        property_address: data.propertyAddress,
+        listing_price: data.listingPrice,
+        equity: data.equity,
+        loan_balance: data.loanBalance,
+        purchase_price: data.purchasePrice,
+        down_payment: data.downPayment,
+        seller_financing_amount: data.sellerFinancingAmount,
+        interest_rate: data.interestRate,
+        loan_term: data.loanTerm,
+        property_tax: data.propertyTax,
+        insurance: data.insurance,
+        hoa: data.hoa,
+        maintenance: data.maintenance,
+        monthly_rent: data.monthlyRent,
+        buyer_down_payment: data.buyerDownPayment,
+        buyer_interest_rate: data.buyerInterestRate,
+        buyer_loan_term: data.buyerLoanTerm,
+        seller_monthly_payment: data.calculations.sellerMonthlyPayment,
+        buyer_monthly_payment: data.calculations.buyerMonthlyPayment,
+        monthly_cash_flow: data.calculations.monthlyCashFlow,
+        profit_spread: data.calculations.profitSpread,
+        cash_on_cash_return: data.calculations.cashOnCashReturn,
+        deal_score: data.calculations.dealScore,
+      },
+    });
+
+    return { success: true, calculationId: calculation.id };
+  } catch (error) {
+    console.error('Save calculation error:', error);
+    return {
+      error: error instanceof Error ? error.message : 'Failed to save calculation',
+    };
+  }
+}
+
+export async function getCalculationForLead(leadId: string) {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user?.id) {
+    return null;
+  }
+
+  try {
+    const calculation = await prisma.calculations.findFirst({
+      where: { lead_id: leadId },
+      orderBy: { created_at: 'desc' },
+    });
+
+    return calculation;
+  } catch (error) {
+    console.error('Get calculation error:', error);
+    return null;
+  }
+}
+
 export async function getLeadsForTable() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();

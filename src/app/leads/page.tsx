@@ -1,18 +1,20 @@
-// src/app/leads/page.tsx - Added listing price update handler
+// src/app/leads/page.tsx - Fixed with Calculator Modal rendering
 'use client';
 
 import { Loader2, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CalculatorModal } from '@/components/ui/CalculatorModal';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { type LeadRow, LeadsDataTable } from '@/components/ui/LeadsDataTable';
 import { 
   dialLeadAction, 
   getLeadsForTable, 
+  saveCalculationAction,
   updateLeadEmailAction,
-  updateLeadNotesAction,
-  updateLeadListingPriceAction
+  updateLeadListingPriceAction,
+  updateLeadNotesAction
 } from '@/lib/actions';
 
 export default function LeadsPage() {
@@ -23,6 +25,10 @@ export default function LeadsPage() {
     message: string;
   } | null>(null);
   const router = useRouter();
+
+  // Calculator state
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [selectedLeadForCalc, setSelectedLeadForCalc] = useState<string | null>(null);
 
   useEffect(() => {
     loadLeads();
@@ -104,7 +110,7 @@ export default function LeadsPage() {
 
     setNotification({
       type: 'success',
-      message: `Listing price updated to ${(price / 1000).toLocaleString()}k`,
+      message: `Listing price updated to $${(price / 1000).toLocaleString()}k`,
     });
 
     await loadLeads();
@@ -131,14 +137,27 @@ export default function LeadsPage() {
     router.push(`/leads/${leadId}`);
   };
 
-  // Calculator handler (coming in Sprint 2)
+  // Calculator handler
   const handleOpenCalculator = (leadId: string) => {
+    console.log('Opening calculator for lead:', leadId);
+    setSelectedLeadForCalc(leadId);
+    setCalculatorOpen(true);
+  };
+
+  const handleSaveCalculation = async (data: any) => {
+    // TODO: Save calculation to database
+    console.log('Saving calculation:', data);
     setNotification({
       type: 'success',
-      message: 'Calculator coming soon! Sprint 2 in progress 🧮',
+      message: '✅ Calculation saved successfully!',
     });
-    // TODO: Open calculator modal with pre-filled data
+    await loadLeads();
   };
+
+  // Get selected lead data for calculator
+  const selectedLead = selectedLeadForCalc 
+    ? leads.find(l => l.id === selectedLeadForCalc) 
+    : null;
 
   if (loading) {
     return (
@@ -230,6 +249,24 @@ export default function LeadsPage() {
           />
         </CardContent>
       </Card>
+
+      {/* Calculator Modal - THIS WAS MISSING! */}
+      <CalculatorModal
+        open={calculatorOpen}
+        onClose={() => {
+          console.log('Closing calculator');
+          setCalculatorOpen(false);
+          setSelectedLeadForCalc(null);
+        }}
+        leadId={selectedLeadForCalc || undefined}
+        initialData={selectedLead ? {
+          propertyAddress: `${selectedLead.property_address}, ${selectedLead.property_city}, ${selectedLead.property_state} ${selectedLead.property_zip}`,
+          listingPrice: selectedLead.listing_price || 0,
+          equity: selectedLead.equity || 0,
+          loanBalance: selectedLead.remaining_balance || 0,
+        } : undefined}
+        onSave={handleSaveCalculation}
+      />
     </div>
   );
 }

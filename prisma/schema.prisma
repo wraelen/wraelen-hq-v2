@@ -63,6 +63,7 @@ model leads {
   calls              calls[]
   assigned_profile   profile?    @relation(fields: [assigned_to], references: [id])
   properties         properties  @relation(fields: [properties_id], references: [id], onDelete: Cascade)
+  calculations       calculations[]
 
   @@index([assigned_to, status])
 }
@@ -176,6 +177,53 @@ model import_jobs {
   
   @@index([user_id])
   @@index([status])
+}
+
+model calculations {
+  id                     String   @id @default(uuid()) @db.Uuid
+  lead_id                String   @db.Uuid
+  
+  // Property Details
+  property_address       String
+  listing_price          Float
+  equity                 Float
+  loan_balance           Float
+  
+  // Offer Details
+  purchase_price         Float
+  down_payment           Float
+  seller_financing_amount Float
+  interest_rate          Float
+  loan_term              Int
+  
+  // Operating Expenses
+  property_tax           Float
+  insurance              Float
+  hoa                    Float
+  maintenance            Float
+  
+  // Revenue
+  monthly_rent           Float
+  
+  // Buyer Terms
+  buyer_down_payment     Float
+  buyer_interest_rate    Float
+  buyer_loan_term        Int
+  
+  // Calculated Results (stored for quick access)
+  seller_monthly_payment Float
+  buyer_monthly_payment  Float
+  monthly_cash_flow      Float
+  profit_spread          Float
+  cash_on_cash_return    Float
+  deal_score             Int
+  
+  created_at             DateTime @default(now())
+  updated_at             DateTime @updatedAt
+  
+  lead                   leads    @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  
+  @@index([lead_id])
 }
 
 enum PropertyType {
